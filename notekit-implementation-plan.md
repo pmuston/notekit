@@ -84,17 +84,21 @@ previous:
    scalars.
 2. **Structural scan.** goldmark as scanner only (harvest P2). Every construct records
    its exact byte span. Nothing in `doc` serialises a tree.
-3. **Cell detection** per §4: ATX heading 2–6, optional prose, first language-tagged
-   fence in the section. Non-first language fences are inert examples; headings with no
-   language fence are prose structure. Resolve the section-vs-span question (§8.1)
-   before writing this.
+3. **Cell detection** per §4: ATX heading 2–6, optional prose, and a source fence that
+   is the first fence of *any* kind in the section (§4.1 — section runs to the next
+   heading of any level; cells never nest). Non-first language fences are inert
+   examples; a section whose first fence is untagged or tagged `output`/`error` holds
+   no cell.
 4. **Slug derivation** per §5.2: lowercase, non-`[a-z0-9]` runs → `-`, trim, truncate
    to 60 then re-trim, empty permitted. Shared slugs are legal and get no suffix.
 5. **`id` handling** per §5.1: read from the source fence; assign lazily via `meta`'s
    append-only insert; reject duplicates within a notebook; injectable generator.
-6. **Result-block pairing** per §4/§6/§7: `output`/`error` fences following the source
-   fence, blank lines permitted. Also recognise sidecar references (§8: provenance
-   comment + image link) as occupying result position.
+6. **Result position** per §4.2: the region after the source fence spanning consecutive
+   result constructs, blank lines permitted. Three admissible forms — `output` fence,
+   `error` fence, sidecar reference (provenance comment + image link, §8). Read
+   tolerates several and mixed forms; write emits exactly one and replaces the region.
+   A bare image link with no provenance comment is prose and must survive a run
+   untouched.
 7. **Sidecar bookkeeping** per §8.1: map `id` → sidecar files; detect renames (slug
    changed, `id` matched) and orphans (`id` matches no cell). Report only — never
    delete.
@@ -211,24 +215,31 @@ Not blockers for Stage 0, but each must be settled before the stage that hits it
 Recording them here so they get resolved deliberately rather than by whichever
 implementation choice happened first.
 
-### 8.1 "Section" vs "span" in §4 — resolve before M0b step 3
+### 8.1 "Section" vs "span" in §4 — ✅ RESOLVED, format spec §4.1
 
-§4 requires the source fence to be "the first fenced block in the heading's **section**"
-but defines the cell's **span** as running to the next heading of the same *or higher*
-level. Those differ for nested headings: a `##` cell's span swallows a following `###`
-subsection, which may itself be a cell with its own fence and results. Undefined today:
-whether the outer cell's "section" ends at the nested heading (so the inner fence is not
-the outer cell's source), and how result pairing behaves across the boundary. Needs one
-sentence in §4.
+`section` is now the single delimiting concept, running to the next ATX heading of
+**any** level; the level-based `span` is deleted. Cells never nest. The old pairing —
+"section" for fence detection, level-based "span" for result pairing — let one run of
+bytes be both an inner cell's source fence and prose belonging to an outer cell, with no
+rule to decide which claim won. Result pairing now depends only on adjacency to the
+source fence (§4.2), never on section size, so flattening costs nothing.
 
-### 8.2 One result *or* one sidecar reference — resolve before M0b step 6
+### 8.2 One result *or* one sidecar reference — ✅ RESOLVED, format spec §4.2
 
-§7 says a run produces exactly one result block, `output` or `error`. §3 lists sidecar
-references as a construct distinct from result blocks, and §8 puts them in "result-block
-position". So it is unstated whether a cell may hold both a fence and a sidecar
-reference, and what a tool does on encountering both. Recommend: exactly one result in
-result position, in whichever form the kind dictates; encountering more than one is a
-tool error on run, prose otherwise.
+**Result position** is defined once, admitting exactly three forms: `output` fence,
+`error` fence, or sidecar reference. Asymmetric read/write rules:
+
+- **read** tolerates several constructs, including mixed forms — a notebook may carry
+  them from an older tool version or a hand edit, and all belong to the cell;
+- **write** produces exactly one, replacing the whole region.
+
+Tolerance beats erroring here because a run replaces the entire region, so the condition
+self-heals; erroring would reject documents a previous tool version legitimately wrote.
+
+A third ambiguity surfaced while resolving these and is settled in §8 alongside them:
+the provenance comment and image link form **one** construct, and an image link with no
+comment before it is *always* prose. Users put images in notebooks; without that rule a
+tool could overwrite one as if it were a result.
 
 ### 8.3 Sidecars stranded by a kind change — genuine gap, resolve before M2
 
@@ -284,7 +295,12 @@ depends on from M0 onward.
 
 ## 10. Immediate next actions
 
-1. Stage 0 bootstrap (§2) — mechanical, no decisions.
-2. Resolve §8.1 (section vs span) and §8.2 (one result form) — both are one-sentence
-   spec edits and both block `doc`'s cell model.
-3. M0a `meta`, which depends on neither.
+1. ~~Stage 0 bootstrap (§2)~~ — done: module, tooling, CI, six package skeletons.
+2. ~~Resolve §8.1 and §8.2~~ — done: format spec §4 rewritten (§4.1 sections, §4.2
+   result position, §4.3 non-cells), plus the image-link pairing rule in §8.
+3. **M0a `meta`** (§3.1) — next. Depends on nothing.
+4. M0b `doc` (§3.2), unblocked now that the cell model is settled.
+
+Still open before the stages that need them: §8.3 (stranded sidecars, before M2), §8.4
+and §8.6 (corpus-pinned, M0c), §8.5 (ANSI scope, before M1), §8.7 (priortool verification,
+after M3).

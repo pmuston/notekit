@@ -5,10 +5,19 @@
 > format. Derived from the adjudicated requirements harvest (`notekit-harvest.md`,
 > 16 July 2026). Anything not specified here is out of scope for the format.
 
-Status: draft v1 · Cell identity revised (§5, §8): stored opaque `id` for identity,
-derived slug for naming — supersedes harvest D1's slug-as-identity, which reassigned
-artifacts on reorder. One `VERIFY AGAINST PRIORTOOL` placeholder remains (sidecar
-payload shape §8) — settle from priortool source before freezing.
+Status: draft v1.
+
+Revised since first draft:
+
+- **Cell identity (§5, §8)** — stored opaque `id` for identity, derived slug for
+  naming. Supersedes harvest D1's slug-as-identity, which silently reassigned
+  artifacts when cells were reordered.
+- **Sections and result position (§4)** — `section` is now the single delimiting
+  concept, running to the next heading of *any* level; the old level-based `span` is
+  gone. Result position is defined once and admits exactly three result forms.
+
+One `VERIFY AGAINST PRIORTOOL` placeholder remains (sidecar directory name and payload
+shape, §8) — settle from priortool source before freezing.
 
 ---
 
@@ -46,12 +55,13 @@ Conforming tools must refuse it rather than guess.
 
 ## 3. Document structure
 
-Everything after the front matter is CommonMark. Three constructs have meaning to
-the format; all other content is **prose** and is never touched by any tool:
+Everything after the front matter is CommonMark. Two constructs have meaning to the
+format; all other content is **prose** and is never touched by any tool:
 
 1. **Cells** (§4) — heading + source fence.
-2. **Result blocks** (§6, §7) — tool-written fenced blocks paired to a cell.
-3. **Sidecar references** (§8) — tool-written links to sidecar artifacts.
+2. **Results** — tool-written, occupying a cell's *result position* (§4.2) in one of
+   exactly three forms: an `output` fence (§6), an `error` fence (§7), or a sidecar
+   reference (§8).
 
 The format is *conservative*: a construct that fails to match the rules below is
 prose, not an error. Only tools produce format errors, and only about blocks they
@@ -64,20 +74,62 @@ A **cell** is:
 - an ATX heading, level 2–6 (`##` recommended and used in all examples), followed by
 - optional prose paragraphs, followed by
 - exactly one **source fence**: a fenced code block whose info string begins with a
-  language tag (§9), appearing as the *first* fenced block in the heading's section.
+  language tag (§9), and which is the first fenced block of *any* kind in the
+  heading's section (§4.1).
 
-The cell's **span** runs from its heading to the next heading of the same or higher
-level, or end of file. Within a span:
+### 4.1 Sections
 
-- fenced blocks after the source fence tagged `output` or `error` are the cell's
-  **result blocks**, paired by position (immediately following the source fence,
-  blank lines permitted between);
-- everything else in the span is prose and is preserved verbatim.
+A heading's **section** runs from that heading to the next ATX heading of **any**
+level, or end of file.
 
-A heading section containing no language-tagged fence is ordinary prose structure.
-A language-tagged fence that is *not* the first fence in a heading section is an
-inert example, not a cell. This is the whole cell-detection rule; there is no
-runnable-marker syntax.
+Heading level plays no part. A `##` heading followed by a `###` heading owns only the
+content between the two; each is a candidate cell in its own right, and **no cell ever
+contains another**.
+
+This flatness is deliberate. A region delimited by heading *level* — running to the
+next heading of the same or higher level — would let one run of bytes be simultaneously
+an inner cell's source fence and prose belonging to an outer cell, with no rule to
+decide which claim wins. Nothing is lost by the flat definition: prose is preserved
+verbatim wherever it falls, and result pairing depends only on adjacency to the source
+fence (§4.2), never on section size.
+
+### 4.2 Result position
+
+A cell's **result position** is the region immediately following its source fence,
+extending across consecutive result constructs with blank lines permitted between
+them. A result construct is one of exactly three forms:
+
+| Form | Defined in |
+|---|---|
+| `output` fence | §6 |
+| `error` fence | §7 |
+| sidecar reference — provenance comment plus image link | §8 |
+
+Everything in result position belongs to the cell as its result.
+
+- **On read**, more than one construct is tolerated, including a mix of forms. A
+  notebook may carry several from an earlier tool version or a hand edit; all of them
+  are that cell's results. Tolerance here is not laxity — because a run replaces the
+  whole region (below), the condition self-heals rather than needing an error.
+- **On write**, a run produces exactly **one** construct, and it replaces the entire
+  result position (§6: results are volatile). Whichever of the three forms the result
+  kind dictates, a conforming tool never leaves two.
+
+Result position ends at the first thing that is neither a result construct nor a blank
+line. From there to the end of the section is prose.
+
+### 4.3 What is not a cell
+
+The format is conservative here; none of the following is an error (§3):
+
+- A section with no fenced block, or none whose info string begins with a language
+  tag, is ordinary prose structure.
+- A section whose first fenced block is untagged, or tagged `output`/`error`, contains
+  no cell. "First fenced block of *any* kind" is meant strictly, so that no tool ever
+  has to guess which fence is the source.
+- A language-tagged fence that is not first in its section is an inert example.
+
+This is the whole cell-detection rule; there is no runnable-marker syntax.
 
 ## 5. Cell identity
 
@@ -107,7 +159,7 @@ An opaque token stored in the source fence's info string under the reserved key 
 - **Lazily assigned.** A tool writes an `id` only when the cell first needs durable
   identity — that is, when it produces a result whose durable form is a sidecar
   artifact (§8). Cells with inline `output`/`error` results never acquire one: those
-  are paired positionally within the cell span (§4) and need no identity. Most cells
+  are paired positionally in result position (§4.2) and need no identity. Most cells
   in most notebooks therefore carry no `id`, and their source fences stay clean.
 - Assignment is a byte-range splice of the info string, appending the key (§9, §10).
 - **Duplicate `id` within one notebook is a tool error.** It can only arise from
@@ -148,9 +200,9 @@ no error raised. Deriving identity from content rather than position is a requir
 
 ## 6. Result blocks: `output`
 
-A tool that runs a cell writes the result as a fenced block immediately after the
-source fence (replacing any existing result blocks for that cell — results are
-**volatile**, harvest D4):
+A tool that runs a cell writes the result as a fenced block in the cell's result
+position (§4.2), replacing everything already there — results are **volatile**
+(harvest D4):
 
 ````markdown
 ## Disk usage by top-level directory
@@ -183,8 +235,10 @@ Rules:
 ## 7. Result blocks: `error`
 
 A failed run persists as a **first-class error block** — never as degenerate
-output (adjudicated 16 July 2026). Same position and pairing rules as `output`;
-a run produces exactly one result block, either `output` or `error`.
+output (adjudicated 16 July 2026). Same position and pairing rules as `output`: it
+occupies the cell's result position (§4.2), and a run writes exactly one construct
+there — an `error` fence, an `output` fence, or a sidecar reference, never a
+combination.
 
 ````markdown
 ```error {status=127, run="2026-07-16T09:44:12Z", tool="clinote/2.0"}
@@ -213,8 +267,7 @@ assigns it an `id` (§5.1) on the first such run.
   the **last** `--`; when the slug is empty the name is `<id>.<ext>` with no separator.
   The slug half is decoration for humans reading diffs and directory listings — every
   lookup keys on the `id`.
-- Durable reference in the notebook, written immediately after the source fence in
-  result-block position:
+- Durable reference in the notebook, written in the cell's result position (§4.2):
 
 ````markdown
 ## Module wiring for CIP_SUPPLY
@@ -230,6 +283,13 @@ MATCH (m:Module)-[r]->(n) RETURN m, r, n
 The HTML comment is the provenance marker (invisible on GitHub); the image link is
 standard CommonMark and renders everywhere. The comment's attribute syntax is the
 §9 metadata grammar without braces.
+
+**The comment and the link together are one result construct** (§4.2), and the comment
+is what makes the link a result rather than prose:
+
+- a provenance comment with no image link following it is prose;
+- an image link with no provenance comment before it is prose — **always**. Users put
+  images in notebooks; the format must never mistake one for a result it may overwrite.
 
 ### 8.1 Lifecycle under editing
 
@@ -306,25 +366,33 @@ cell-level metadata for the runtime, uninterpreted by the format (harvest D6).
 The format ships with a golden-file corpus; a conforming implementation passes all:
 
 1. Round-trip identity over every corpus file (parse → serialise, byte-compare).
-2. Cell detection: files mixing cells, inert example fences, fences without
-   headings, nested heading levels.
-3. Metadata grammar: valid/invalid info strings, quoting, flags, duplicate-key
+2. Cell detection: files mixing cells, inert example fences, and fences with no
+   heading. Section boundaries (§4.1): a `##` cell immediately followed by a `###`
+   cell, each detected independently with neither containing the other; a `###`
+   heading interposed between a source fence and an `output` fence, which breaks the
+   pairing. Non-cells (§4.3): first fence untagged, and first fence tagged `output`.
+3. Result position (§4.2): a single construct of each of the three forms; two `output`
+   fences and a mixed `output`-plus-sidecar-reference both read as one cell's results
+   and both replaced wholesale by one construct on run; a blank line inside result
+   position, and a paragraph terminating it. Sidecar-reference pairing (§8): a bare
+   image link with no provenance comment is prose and survives a run untouched.
+4. Metadata grammar: valid/invalid info strings, quoting, flags, duplicate-key
    rejection.
-4. Result splice: run a cell, verify only the expected byte range changed.
-5. Fence-length safety: bodies containing 3, 4, 5-backtick runs.
-6. Slug derivation: normalisation, 60-character truncation, empty result from a
+5. Result splice: run a cell, verify only the expected byte range changed.
+6. Fence-length safety: bodies containing 3, 4, 5-backtick runs.
+7. Slug derivation: normalisation, 60-character truncation, empty result from a
    non-ASCII heading, and two cells sharing a slug with no suffix applied to either.
-7. `id` assignment: appended to a fence with no metadata and to one with existing
+8. `id` assignment: appended to a fence with no metadata and to one with existing
    metadata, in both cases leaving every other entry's text, spacing, and order
    byte-identical; not assigned at all to a cell whose result is inline; duplicate
    `id` in one notebook rejected as a tool error.
-8. **Identity stability** — the cases the pre-`id` scheme failed:
+9. **Identity stability** — the cases the pre-`id` scheme failed:
    - heading rename keeps the attachment: sidecar files renamed, `id` unchanged, image
      link rewritten, no orphan reported, no re-run required;
    - reordering two cells, and inserting a third cell with a duplicate heading above
      them, leaves every sidecar attachment unchanged;
    - a sidecar whose `id` matches no cell is reported as an orphan and left on disk.
-9. Error block form, truncation marker, ANSI stripping.
+10. Error block form, truncation marker, ANSI stripping.
 
 ## 12. Non-goals (format v1)
 

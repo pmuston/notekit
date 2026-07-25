@@ -138,6 +138,27 @@ about blocks they were asked to run or write. Given that: refuse non-notekit fil
 rather than guessing, reject duplicate metadata keys, and never silently repair
 input.
 
+**The cell model is flat, and read is more permissive than write.** Format spec §4 was
+rewritten to settle two ambiguities that blocked `doc`:
+
+- A **section** runs from a heading to the next ATX heading of *any* level. Level is
+  irrelevant and **cells never nest.** An earlier draft also had a level-based "span"
+  reaching to the next same-or-higher heading, which let one run of bytes be both an
+  inner cell's source fence and prose owned by an outer cell. `span` no longer exists;
+  don't reintroduce it.
+- A cell's **result position** is the region after its source fence covering
+  consecutive result constructs. Exactly three forms are admissible: `output` fence,
+  `error` fence, sidecar reference. **Read tolerates several, including mixed forms;
+  write emits exactly one and replaces the whole region.** The asymmetry is deliberate
+  — replacement self-heals, so erroring would only reject documents an older tool
+  version legitimately wrote.
+- The source fence must be the first fence of *any* kind in its section — so a section
+  whose first fence is untagged, or tagged `output`/`error`, contains no cell at all.
+  Strict on purpose: no tool should ever have to guess which fence is the source.
+- A sidecar reference is the provenance comment **and** image link together. An image
+  link with no comment before it is always prose. Users put images in notebooks; this
+  rule is what stops a tool overwriting one as though it were a result.
+
 Further invariants worth internalising before touching `run` or `exec`:
 
 - **One session per notebook**, owned by the executor, created on open and destroyed
@@ -148,10 +169,10 @@ Further invariants worth internalising before touching `run` or `exec`:
   immediately; state is pollable. Sessions are stateful, so concurrent cell
   execution within one notebook is forbidden; different notebooks may run
   concurrently.
-- **Results are volatile.** Every run replaces the cell's result blocks and
-  overwrites its sidecar files. No freeze, no staleness, no protection. A run
-  produces exactly one result block — `output` *or* `error`, never a failure folded
-  into degenerate output.
+- **Results are volatile.** Every run replaces the whole of the cell's result position
+  and overwrites its sidecar files. No freeze, no staleness, no protection. A run
+  writes exactly one result construct — `output` fence, `error` fence, or sidecar
+  reference — never a failure folded into degenerate output.
 - **Output cap is 1 MiB**, ANSI stripped for the durable form, with the truncation
   marker and `truncated` flag per format spec §6.
 - **Fence-length safety:** N backticks where N = max(3, longest backtick run in body
@@ -183,7 +204,9 @@ The **format conformance corpus** (format spec §11) is the acceptance suite for
 identity over every corpus file; cell detection across mixed cells, inert example
 fences, headingless fences, nested heading levels; metadata grammar including
 quoting, flags, and duplicate-key rejection; result splice verifying *only* the
-expected byte range changed; fence-length safety at 3/4/5-backtick runs; slug
+expected byte range changed; section boundaries and result-position cases (§11.2–3,
+including mixed result forms and a bare image link surviving a run); fence-length
+safety at 3/4/5-backtick runs; slug
 derivation with truncation, empty results, and shared slugs; `id` assignment,
 append-only insertion, and duplicate rejection; identity stability across rename,
 reorder, and duplicate-heading insertion; orphan reporting; error block form,
