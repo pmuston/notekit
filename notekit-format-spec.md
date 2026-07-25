@@ -337,9 +337,15 @@ quoted       = '"' ( any char, \" and \\ escaped ) '"'
 - **`id` insertion is append-only.** Source fences are usually hand-authored, so
   adding an `id` (§5.1) must not reformat them: the entry is appended after all
   existing entries, which keep their original text, spacing, and order. A fence with
-  no metadata gains ` {id=…}`; a fence with metadata gains `, id=…` inside the
-  existing braces. This is a deliberate exception to the reserved-keys-first rule
-  above, which governs tool-written result blocks only.
+  no metadata gains ` {id=…}` directly after its tag; a fence with metadata gains
+  `, id=…` immediately after the final entry — *before* any whitespace preceding the
+  closing brace, so `{format=csv }` becomes `{format=csv, id=… }`. The edit is
+  strictly additive: no existing byte is removed or moved. This is a deliberate
+  exception to the reserved-keys-first rule above, which governs tool-written result
+  blocks only.
+- Escaping inside quoted values is a bijection: `\` may precede only `"` or `\`, and
+  any other escape is malformed. Without that, decode and re-encode could not agree
+  byte for byte.
 
 The format reserves the keys named in §5–§8: `id` on source fences, and the result and
 provenance keys on `output`/`error`/sidecar markers. Every *other* key on a **source**

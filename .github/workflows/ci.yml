@@ -31,9 +31,7 @@ jobs:
       - name: test
         run: go test ./...
 
-      # Fuzz smoke runs land once the targets exist (M0a/M0b). Byte-identical
-      # round-trip is the property; seeds come from the conformance corpus.
-      # - name: fuzz (smoke)
-      #   run: |
-      #     go test -run '^$' -fuzz FuzzMetaRoundTrip -fuzztime 20s ./meta
-      #     go test -run '^$' -fuzz FuzzDocRoundTrip -fuzztime 20s ./doc
+      # Short smoke runs; run `make fuzz` locally for longer before tagging.
+      # doc's targets are added here with M0b.
+      - name: fuzz (smoke)
+        run: make fuzz FUZZTIME=10s

@@ -68,8 +68,15 @@ No dependencies; build first. Responsibilities:
   `{format=csv, id=…}`).
 - No key semantics whatsoever. `meta` must not know what `id` or `format` mean.
 
-**Gate:** table-driven tests over valid and invalid info strings; parse → serialise
-identity for every well-formed input; `FuzzMetaRoundTrip` green (§7).
+**Gate:** ✅ met. Table-driven tests over valid and invalid info strings; parse →
+serialise identity for every well-formed input; 100% statement coverage; three fuzz
+targets green (`FuzzMetaRoundTrip`, `FuzzMetaInsertIsAdditive`, `FuzzMetaFormatParse`).
+
+Design note: `Format` takes the reserved-key order as a **parameter** rather than
+holding §6/§7's orders itself. That is what keeps the package free of key semantics —
+those orders belong to whichever package writes result blocks, i.e. `run` at M1.
+Similarly `Entry.Quoted` records whether a value was quoted in the source, so a tool
+can match the source's style where the format permits either form.
 
 ### 3.2 M0b — `doc` (format spec §2–§8)
 
@@ -266,12 +273,16 @@ escape sequences including cursor movement, OSC, and control characters? A shell
 executor will emit more than colour. Recommend stripping all CSI and OSC sequences and
 normalising remaining control characters except `\t` and `\n`.
 
-### 8.6 `id` insertion into untidy metadata — pin in the corpus, M0c
+### 8.6 `id` insertion into untidy metadata — ✅ RESOLVED, format spec §9
 
-Append-only insertion into `{format=csv }` (trailing space inside the braces) yields
-`{format=csv , id=…}`. Acceptable but ugly. Decide whether insertion may consume
-whitespace immediately before the closing brace — a narrow, well-defined exception to
-"changes nothing else" — and pin it.
+Insert immediately after the final entry, *before* any whitespace preceding the closing
+brace: `{format=csv }` → `{format=csv, id=… }`. Strictly additive — no byte removed —
+and it reads tidily, so the whitespace-consuming exception floated earlier is
+unnecessary. Covered by `TestInsert` and `FuzzMetaInsertIsAdditive`.
+
+A related detail settled while implementing: `\` may escape only `"` or `\`, and any
+other escape is malformed. That keeps escaping a bijection, without which decode and
+re-encode cannot agree byte for byte. Recorded in §9.
 
 ### 8.7 `VERIFY AGAINST PRIORTOOL` (§8) — not on the critical path
 
@@ -298,9 +309,10 @@ depends on from M0 onward.
 1. ~~Stage 0 bootstrap (§2)~~ — done: module, tooling, CI, six package skeletons.
 2. ~~Resolve §8.1 and §8.2~~ — done: format spec §4 rewritten (§4.1 sections, §4.2
    result position, §4.3 non-cells), plus the image-link pairing rule in §8.
-3. **M0a `meta`** (§3.1) — next. Depends on nothing.
-4. M0b `doc` (§3.2), unblocked now that the cell model is settled.
+3. ~~M0a `meta`~~ — done: grammar, duplicate rejection, canonical form, append-only
+   insertion. 100% coverage, three fuzz targets green, CI running them as smoke.
+4. **M0b `doc`** (§3.2) — next, unblocked now that the cell model is settled.
 
 Still open before the stages that need them: §8.3 (stranded sidecars, before M2), §8.4
-and §8.6 (corpus-pinned, M0c), §8.5 (ANSI scope, before M1), §8.7 (priortool verification,
-after M3).
+(truncation/fence-length ordering, corpus-pinned at M0c), §8.5 (ANSI scope, before M1),
+§8.7 (priortool verification, after M3).

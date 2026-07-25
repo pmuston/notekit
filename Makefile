@@ -8,12 +8,15 @@ build:
 test:
 	go test ./...
 
-# Fuzz targets arrive with M0a (meta) and M0b (doc); this target fails until then.
 # Byte-identical round-trip is the property under test — see the implementation
-# plan §7.
+# plan §7. Go runs one fuzz target per invocation, hence the separate lines.
+# doc's targets arrive with M0b.
+FUZZTIME ?= 30s
+
 fuzz:
-	go test -run '^$$' -fuzz FuzzMetaRoundTrip -fuzztime 30s ./meta
-	go test -run '^$$' -fuzz FuzzDocRoundTrip -fuzztime 30s ./doc
+	go test -run '^$$' -fuzz FuzzMetaRoundTrip -fuzztime $(FUZZTIME) ./meta
+	go test -run '^$$' -fuzz FuzzMetaInsertIsAdditive -fuzztime $(FUZZTIME) ./meta
+	go test -run '^$$' -fuzz FuzzMetaFormatParse -fuzztime $(FUZZTIME) ./meta
 
 lint:
 	go vet ./...
