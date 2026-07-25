@@ -1,0 +1,14 @@
+# Built binaries
+/notefmt
+/clinote
+/bin/
+
+# Go test artifacts
+*.test
+*.out
+
+# Sidecar directories produced by manual testing.
+# Corpus fixtures are exempt: orphan- and rename-detection cases (format spec
+# §11.8) need committed .assets/ trees.
+*.assets/
+!/doc/testdata/**/*.assets/
