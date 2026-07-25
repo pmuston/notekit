@@ -48,9 +48,14 @@ notekit/
 - Parses a notebook per format spec §2–§8: front matter (reserved keys + raw
   passthrough), cell detection, cell identity (stored `id` + derived slug, format spec
   §5), result-block pairing, sidecar references.
-- Uses goldmark as a **structural scanner only** (harvest P2); the package's own
-  byte-range model owns all serialisation. Every construct records its exact byte
-  span in the source.
+- A Markdown parser is used as a **structural scanner only** (harvest P2); the
+  package's own byte-range model owns all serialisation. Every construct records its
+  exact byte span in the source.
+- In practice the scanner is a purpose-built line scanner rather than a goldmark AST
+  walk, because goldmark reports no position at all for an info-less, content-less
+  fence and reports text rather than line spans for every block. goldmark remains a
+  dependency and is used as an independent CommonMark **oracle** in tests, which the
+  scanner must agree with. See the implementation plan §3.2 for the evidence.
 - Provides splice operations: replace a cell's result blocks, append an `id` to a
   source fence's info string, append a cell, edit a prose range. Splice is the *only*
   write path; there is no "serialise the whole tree" API, by design — that is how

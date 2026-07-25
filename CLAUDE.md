@@ -4,8 +4,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Repository state
 
-This repo currently contains **specifications only** — no Go module, no source, no
-git repository. The three specs are the authority for everything that gets built:
+Go module `github.com/pmuston/notekit` on Go 1.25.4. `meta` and `doc` are implemented
+(M0a, M0b); `run`, `exec`, `kind`, and `serve` are doc-comment skeletons. The specs are
+the authority for everything that gets built:
 
 | File | Owns |
 |---|---|
@@ -119,12 +120,22 @@ notekit/
 
 Three architectural decisions drive almost every implementation choice:
 
-**Byte-range splice is the only write path.** goldmark is a *structural scanner
-only* — every construct records its exact byte span, and tools rewrite exactly the
-byte ranges they executed or edited, copying every other byte through. There is
+**Byte-range splice is the only write path.** A Markdown parser is a *structural
+scanner only* — every construct records its exact byte span, and tools rewrite exactly
+the byte ranges they executed or edited, copying every other byte through. There is
 deliberately no "serialise the whole tree" API; that absence is what guarantees
 round-trip identity. Never reflow prose, normalise whitespace, reorder metadata the
 tool did not write, or "fix" non-conforming constructs.
+
+**`doc` scans lines itself; goldmark is a test oracle, not the scanner.** The kit spec
+said "goldmark as a structural scanner", but goldmark reports *no position at all* for
+an info-less, content-less fence, and such a fence is load-bearing — as a section's
+first fence it suppresses the cell (§4.3), so missing it would let a tool run the wrong
+bytes. Its block spans also cover text, not whole lines. So `doc/scan.go` is a
+purpose-built line scanner, and `doc/scan_goldmark_test.go` cross-checks it against
+goldmark on every fixture, with one documented divergence (a fence indented inside a
+list item). Do not "simplify" the scanner into an AST walk — the probe evidence is in
+the implementation plan §3.2.
 
 **The format assigns almost no semantics.** Only `notekit` and `title` in front
 matter, and the keys named in format spec §6–§8, are reserved. Everything else —
@@ -173,6 +184,11 @@ Further invariants worth internalising before touching `run` or `exec`:
   and overwrites its sidecar files. No freeze, no staleness, no protection. A run
   writes exactly one result construct — `output` fence, `error` fence, or sidecar
   reference — never a failure folded into degenerate output.
+- **An unclosed source fence has no result position**, so persisting its result is
+  refused rather than written (format spec §4.2). The fence extends to end of file;
+  appending there lands inside the fence body and corrupts the cell, and closing it
+  first would be silent repair. The cell stays readable and runnable. A fuzzer found
+  this, not a spec reading — `Cell.SetResult` returns an error for it.
 - **Output cap is 1 MiB**, ANSI stripped for the durable form, with the truncation
   marker and `truncated` flag per format spec §6.
 - **Fence-length safety:** N backticks where N = max(3, longest backtick run in body
@@ -216,10 +232,25 @@ The identity-stability cases (format spec §11.8) exist because the pre-`id` sch
 failed them — treat them as regression tests, not hypotheticals. The `id` generator
 must be injectable to keep goldens deterministic.
 
-Tests are table-driven. Once a Go module exists the usual commands apply
-(`go build ./...`, `go test ./...`, `go test ./doc -run TestName`); no build tooling
-is committed yet, so don't cite Makefile targets that don't exist — the kit spec
-mentions only a possible `make vendor` for refreshing vendored frontend assets.
+Tests are table-driven, and the shared fixture set lives in `doc/fixtures_test.go` —
+add a case there and the round-trip test and goldmark cross-check pick it up
+automatically.
+
+**Fuzzing is load-bearing here, not decoration.** Byte-identity and append-only
+insertion are exactly the properties a fuzzer can falsify, and one already has: the
+unclosed-fence corruption above came from `FuzzDocSetResult`, not from review. Six
+targets exist across `meta` and `doc`. Splice tests assert *prefix and suffix
+identity* rather than a diff span, because "only the expected range changed" is the
+real requirement and a diff-based bound is ambiguous for insertions.
+
+Commands:
+
+```bash
+make test          # go test ./...
+make lint          # go vet + gofmt check
+make fuzz          # all six targets, 30s each; FUZZTIME=2m for longer
+go test ./doc -run TestResultPosition
+```
 
 ## Dependency policy
 

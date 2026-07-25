@@ -106,6 +106,24 @@ func (e *DuplicateKeyError) Error() string {
 	return fmt.Sprintf("info string: duplicate key %q at offset %d", e.Key, e.Offset)
 }
 
+// Tag returns an info string's tag without validating the metadata that follows,
+// using the same delimiters as [Parse]: the tag ends at whitespace or '{'.
+//
+// Callers that need the tag even when the metadata is malformed use this — a fence
+// with a broken info string still has a structural role (§4.3), and refusing to
+// report its tag would turn a metadata error into a cell-detection error.
+func Tag(s string) string {
+	p := 0
+	for p < len(s) && isSpace(s[p]) {
+		p++
+	}
+	start := p
+	for p < len(s) && !isSpace(s[p]) && s[p] != '{' {
+		p++
+	}
+	return s[start:p]
+}
+
 // Parse parses a fence info string.
 //
 // The empty string yields an Info with an empty tag and no entries, which is how

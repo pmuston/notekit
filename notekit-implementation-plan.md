@@ -5,7 +5,8 @@
 > milestone list glosses over, and lists the spec questions each stage will force.
 > Not normative: the three specs govern. This document is disposable once M3 lands.
 
-Status: draft · No code exists yet; Stage 0 is the next action.
+Status: draft · Stage 0, M0a (`meta`), and M0b (`doc`) complete bar sidecar
+bookkeeping. M0c (conformance corpus) is next.
 
 ---
 
@@ -78,7 +79,7 @@ those orders belong to whichever package writes result blocks, i.e. `run` at M1.
 Similarly `Entry.Quoted` records whether a value was quoted in the source, so a tool
 can match the source's style where the format permits either form.
 
-### 3.2 M0b — `doc` (format spec §2–§8)
+### 3.2 M0b — `doc` (format spec §2–§8) — ✅ COMPLETE except sidecar bookkeeping
 
 Depends on `meta`. Build in this internal order, because each step's tests need the
 previous:
@@ -89,8 +90,21 @@ previous:
    round-tripping YAML through a marshaller — that is the simplest way to guarantee
    §2's byte-for-byte passthrough, and it means no YAML dependency beyond reading two
    scalars.
-2. **Structural scan.** goldmark as scanner only (harvest P2). Every construct records
-   its exact byte span. Nothing in `doc` serialises a tree.
+2. **Structural scan.** Every construct records its exact byte span; nothing in `doc`
+   serialises a tree. **Deviation from kit spec §3.1, forced by evidence:** the scanner
+   is a purpose-built line scanner, not a walk of goldmark's AST. Probing goldmark 1.8.4
+   showed it reports an info-less, content-less fence (```` ```\n``` ````) as a node with
+   *no position information at all*, so that fence's span cannot be recovered — and such
+   a fence matters, because as a section's first fence it suppresses the cell (§4.3), so
+   missing it would let a tool run the wrong bytes. Block spans also cover text rather
+   than whole lines (a `## H` heading reports only `H`), so line-snapping was needed
+   regardless, and fence-interior tracking — "is this heading inside a fence?" — falls
+   out of a line scan for free while an AST walk would need the spans goldmark cannot
+   give. goldmark stays in the build as an independent CommonMark **oracle**:
+   `scan_goldmark_test.go` asserts the scanner agrees with it on every fixture, with one
+   documented divergence (a fence indented inside a list item). Harvest P2's intent — a
+   Markdown parser as structural scanner, never as serialiser — is upheld; only the
+   choice of which code reads the bytes changed. Worth folding into kit spec §3.1.
 3. **Cell detection** per §4: ATX heading 2–6, optional prose, and a source fence that
    is the first fence of *any* kind in the section (§4.1 — section runs to the next
    heading of any level; cells never nest). Non-first language fences are inert
@@ -108,7 +122,10 @@ previous:
    untouched.
 7. **Sidecar bookkeeping** per §8.1: map `id` → sidecar files; detect renames (slug
    changed, `id` matched) and orphans (`id` matches no cell). Report only — never
-   delete.
+   delete. **Still outstanding** — the only step of M0b not done. It is the one step
+   that touches the filesystem, which is a clean seam: everything above is pure
+   document model. Nothing exercises it until a sidecar-producing tool exists (§8.7),
+   but `notefmt` should report orphans, so it lands with M0d.
 8. **Splice operations**, the only write path: replace a cell's result blocks, append
    an `id` to a source fence, edit a prose range, append a cell. Include the prose-range
    splice now even though nothing exercises it until M2 — it is the same machinery.
@@ -222,6 +239,15 @@ Not blockers for Stage 0, but each must be settled before the stage that hits it
 Recording them here so they get resolved deliberately rather than by whichever
 implementation choice happened first.
 
+### 8.0 Unclosed source fences — ✅ RESOLVED, format spec §4.2
+
+Found by `FuzzDocSetResult`, not by reading the spec. An unclosed fence runs to end of
+file, so a cell's result position does not exist: appending a result lands *inside the
+fence body* and silently corrupts the cell. Resolved by refusing — the cell stays
+readable and runnable, only persisting its result is impossible until the author closes
+the fence. Auto-closing would be the silent repair §10 forbids. `Cell.SetResult`
+therefore returns an error, and `TestSetResultRefusesUnclosedFence` is the regression.
+
 ### 8.1 "Section" vs "span" in §4 — ✅ RESOLVED, format spec §4.1
 
 `section` is now the single delimiting concept, running to the next ATX heading of
@@ -258,6 +284,22 @@ definition, because their `id` still matches a live cell. Options: treat "sideca
 under a live `id` not written by the latest run" as a reportable stale state, or have
 `run` delete them as part of volatile replacement. The second contradicts "never delete
 silently"; the first is probably right and needs §8.1 wording.
+
+### 8.8 Provenance comment attribute separator — ✅ RESOLVED, format spec §8
+
+§8 said the comment's attributes use "the §9 metadata grammar without braces" while its
+own example separated them with spaces alone — and §9's grammar is comma-separated. The
+two could not both be right. Resolved in favour of commas: one grammar means one parser
+(`meta.Parse` on `"result {" + attrs + "}"`, no extra code) and one canonical writer,
+and the comment is invisible in rendered output so the punctuation costs nothing. The
+`VERIFY AGAINST PRIORTOOL` pass should confirm or overturn this, since it is the section
+still unverified.
+
+Also corrected while implementing: the id used as an example throughout the specs,
+`a7f3k2p9`, is not valid base32 — it contains `9`, and §5.1's alphabet is `[a-z2-7]`.
+The canonical example is now `k3m7q2vf`. Keeping the alphabet and fixing the example
+was the right way round: base32 excludes `0 1 8 9` precisely to avoid confusion with
+`o l b g` in a token humans occasionally read aloud or retype.
 
 ### 8.4 Truncation and fence length ordering — pin in the corpus, M0c
 
@@ -311,7 +353,14 @@ depends on from M0 onward.
    result position, §4.3 non-cells), plus the image-link pairing rule in §8.
 3. ~~M0a `meta`~~ — done: grammar, duplicate rejection, canonical form, append-only
    insertion. 100% coverage, three fuzz targets green, CI running them as smoke.
-4. **M0b `doc`** (§3.2) — next, unblocked now that the cell model is settled.
+4. ~~M0b `doc`~~ — done except step 7 (sidecar bookkeeping, which needs the
+   filesystem and lands with M0d). Front matter, line scanner, cells, sections, result
+   position, slug, id, and all splice operations. 99% coverage, three fuzz targets, and
+   a goldmark cross-check over every fixture.
+5. **M0c — the conformance corpus** (§3.3) — next. The fixtures in `doc` already cover
+   most of §11; promoting them to golden files on disk is what remains, plus §8.4 and
+   §8.6's pinned cases.
+6. M0d — `notefmt`, including orphan reporting, which brings step 7 with it.
 
 Still open before the stages that need them: §8.3 (stranded sidecars, before M2), §8.4
 (truncation/fence-length ordering, corpus-pinned at M0c), §8.5 (ANSI scope, before M1),

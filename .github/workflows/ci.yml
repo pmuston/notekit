@@ -32,6 +32,5 @@ jobs:
         run: go test ./...
 
       # Short smoke runs; run `make fuzz` locally for longer before tagging.
-      # doc's targets are added here with M0b.
       - name: fuzz (smoke)
         run: make fuzz FUZZTIME=10s

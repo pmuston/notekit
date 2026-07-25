@@ -86,10 +86,10 @@ func TestParseValid(t *testing.T) {
 		},
 		{
 			name: "id on a source fence",
-			in:   "cypher {id=a7f3k2p9}",
+			in:   "cypher {id=k3m7q2vf}",
 			tag:  "cypher",
 			entries: []Entry{
-				{Key: "id", Value: "a7f3k2p9", raw: "id=a7f3k2p9"},
+				{Key: "id", Value: "k3m7q2vf", raw: "id=k3m7q2vf"},
 			},
 		},
 		{
@@ -178,15 +178,15 @@ func TestInsert(t *testing.T) {
 		in   string
 		want string
 	}{
-		{"no metadata", "cypher", "cypher {id=a7f3k2p9}"},
-		{"existing metadata", "cypher {format=csv}", "cypher {format=csv, id=a7f3k2p9}"},
-		{"several entries", "sh {a=1, b}", "sh {a=1, b, id=a7f3k2p9}"},
+		{"no metadata", "cypher", "cypher {id=k3m7q2vf}"},
+		{"existing metadata", "cypher {format=csv}", "cypher {format=csv, id=k3m7q2vf}"},
+		{"several entries", "sh {a=1, b}", "sh {a=1, b, id=k3m7q2vf}"},
 		// §8.6: strictly additive — the space before '}' is preserved, and the
 		// new entry still reads tidily because it lands before that space.
-		{"trailing space inside braces", "sh {format=csv }", "sh {format=csv, id=a7f3k2p9 }"},
-		{"untidy interior spacing preserved", "sh {  a = 1  }", "sh {  a = 1, id=a7f3k2p9  }"},
-		{"trailing space after tag", "cypher  ", "cypher {id=a7f3k2p9}  "},
-		{"trailing space after braces", "sh {a=1}  ", "sh {a=1, id=a7f3k2p9}  "},
+		{"trailing space inside braces", "sh {format=csv }", "sh {format=csv, id=k3m7q2vf }"},
+		{"untidy interior spacing preserved", "sh {  a = 1  }", "sh {  a = 1, id=k3m7q2vf  }"},
+		{"trailing space after tag", "cypher  ", "cypher {id=k3m7q2vf}  "},
+		{"trailing space after braces", "sh {a=1}  ", "sh {a=1, id=k3m7q2vf}  "},
 	}
 
 	for _, tt := range tests {
@@ -195,7 +195,7 @@ func TestInsert(t *testing.T) {
 			if err != nil {
 				t.Fatalf("Parse(%q) = error %v", tt.in, err)
 			}
-			got, err := in.Insert("id", "a7f3k2p9")
+			got, err := in.Insert("id", "k3m7q2vf")
 			if err != nil {
 				t.Fatalf("Insert = error %v", err)
 			}
@@ -208,7 +208,7 @@ func TestInsert(t *testing.T) {
 				t.Fatalf("Parse(inserted %q) = error %v", got, err)
 			}
 			e, ok := re.Get("id")
-			if !ok || e.Value != "a7f3k2p9" {
+			if !ok || e.Value != "k3m7q2vf" {
 				t.Errorf("Get(id) = %#v, %v", e, ok)
 			}
 		})
@@ -414,5 +414,25 @@ func TestFormatErrors(t *testing.T) {
 				t.Fatalf("Format(%q, %#v) = nil error, want error", tt.tag, tt.entries)
 			}
 		})
+	}
+}
+
+func TestTag(t *testing.T) {
+	// Tag must report the tag even when the metadata that follows is malformed:
+	// a broken info string still leaves the fence a structural role (§4.3).
+	tests := []struct{ in, want string }{
+		{"", ""},
+		{"sh", "sh"},
+		{"  sh  ", "sh"},
+		{"sh {format=csv}", "sh"},
+		{"output {truncated}", "output"},
+		{"sh{a=1}", "sh"},       // separator error for Parse, tag still readable
+		{"sh {a=1, a=2}", "sh"}, // duplicate keys, tag still readable
+		{"sh {unterminated", "sh"},
+	}
+	for _, tt := range tests {
+		if got := Tag(tt.in); got != tt.want {
+			t.Errorf("Tag(%q) = %q, want %q", tt.in, got, tt.want)
+		}
 	}
 }

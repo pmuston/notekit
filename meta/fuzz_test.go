@@ -11,7 +11,7 @@ var seeds = []string{
 	"output {truncated}",
 	`output {format=csv, run="2026-07-16T09:41:07Z", tool="clinote/2.0"}`,
 	`error {status=127, run="2026-07-16T09:44:12Z", tool="clinote/2.0"}`,
-	"cypher {id=a7f3k2p9}",
+	"cypher {id=k3m7q2vf}",
 	"sh {  a = 1 ,   b   }",
 	`sh {msg="a \"b\" c\\d"}`,
 	`sh {msg=""}`,
@@ -53,7 +53,7 @@ func FuzzMetaInsertIsAdditive(f *testing.F) {
 		if err != nil {
 			return
 		}
-		out, err := before.Insert("id", "a7f3k2p9")
+		out, err := before.Insert("id", "k3m7q2vf")
 		if err != nil {
 			return // refusing (untagged fence, key present) is valid
 		}
@@ -76,7 +76,7 @@ func FuzzMetaInsertIsAdditive(f *testing.F) {
 				t.Fatalf("Insert disturbed entry %d of %q: %#v -> %#v", i, s, e, aEntries[i])
 			}
 		}
-		if e, ok := after.Get("id"); !ok || e.Value != "a7f3k2p9" {
+		if e, ok := after.Get("id"); !ok || e.Value != "k3m7q2vf" {
 			t.Fatalf("inserted entry missing from %q", out)
 		}
 	})

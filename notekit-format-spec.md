@@ -118,6 +118,13 @@ Everything in result position belongs to the cell as its result.
 Result position ends at the first thing that is neither a result construct nor a blank
 line. From there to the end of the section is prose.
 
+**An unclosed source fence has no result position.** A fence left unterminated at end
+of file extends to end of file, so there is no position after it. Such a cell is still
+a cell — its body is well defined and a tool may run it — but a tool asked to persist
+its result must **refuse**. Writing anyway would append into the fence body and
+silently corrupt the cell; closing the fence first would be the silent repair §10
+forbids. The author closes the fence, and the result becomes persistable.
+
 ### 4.3 What is not a cell
 
 The format is conservative here; none of the following is an error (§3):
@@ -272,17 +279,25 @@ assigns it an `id` (§5.1) on the first such run.
 ````markdown
 ## Module wiring for CIP_SUPPLY
 
-```cypher {id=a7f3k2p9}
+```cypher {id=k3m7q2vf}
 MATCH (m:Module)-[r]->(n) RETURN m, r, n
 ```
 
-<!-- notekit:result kind=graph run="2026-07-16T10:02:55Z" tool="graphtool/2.0" -->
-![Module wiring for CIP_SUPPLY](procsim-audit.assets/module-wiring-for-cip-supply--a7f3k2p9.png)
+<!-- notekit:result kind=graph, run="2026-07-16T10:02:55Z", tool="graphtool/2.0" -->
+![Module wiring for CIP_SUPPLY](procsim-audit.assets/module-wiring-for-cip-supply--k3m7q2vf.png)
 ````
 
 The HTML comment is the provenance marker (invisible on GitHub); the image link is
-standard CommonMark and renders everywhere. The comment's attribute syntax is the
-§9 metadata grammar without braces.
+standard CommonMark and renders everywhere.
+
+The comment's attribute syntax is the §9 metadata grammar with the braces removed and
+nothing else changed — **entries stay comma-separated**, and every quoting and
+duplicate-key rule carries over unaltered. An earlier draft's example separated them
+with spaces alone, which contradicted the grammar it claimed to reuse; commas mean one
+grammar, one parser, and one canonical writer for fences and comments alike. The
+comment is invisible in rendered output, so nothing is lost by the punctuation. The
+marker itself, `notekit:result`, must be the comment's first token — an ordinary HTML
+comment is never a result reference.
 
 **The comment and the link together are one result construct** (§4.2), and the comment
 is what makes the link a result rather than prose:
@@ -380,8 +395,10 @@ The format ships with a golden-file corpus; a conforming implementation passes a
 3. Result position (§4.2): a single construct of each of the three forms; two `output`
    fences and a mixed `output`-plus-sidecar-reference both read as one cell's results
    and both replaced wholesale by one construct on run; a blank line inside result
-   position, and a paragraph terminating it. Sidecar-reference pairing (§8): a bare
-   image link with no provenance comment is prose and survives a run untouched.
+   position, and a paragraph terminating it; an unclosed source fence, whose cell is
+   readable but whose result a tool must refuse to write. Sidecar-reference pairing
+   (§8): a bare image link with no provenance comment is prose and survives a run
+   untouched.
 4. Metadata grammar: valid/invalid info strings, quoting, flags, duplicate-key
    rejection.
 5. Result splice: run a cell, verify only the expected byte range changed.

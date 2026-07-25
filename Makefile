@@ -10,13 +10,15 @@ test:
 
 # Byte-identical round-trip is the property under test — see the implementation
 # plan §7. Go runs one fuzz target per invocation, hence the separate lines.
-# doc's targets arrive with M0b.
 FUZZTIME ?= 30s
 
 fuzz:
 	go test -run '^$$' -fuzz FuzzMetaRoundTrip -fuzztime $(FUZZTIME) ./meta
 	go test -run '^$$' -fuzz FuzzMetaInsertIsAdditive -fuzztime $(FUZZTIME) ./meta
 	go test -run '^$$' -fuzz FuzzMetaFormatParse -fuzztime $(FUZZTIME) ./meta
+	go test -run '^$$' -fuzz FuzzDocParse -fuzztime $(FUZZTIME) ./doc
+	go test -run '^$$' -fuzz FuzzDocSetResult -fuzztime $(FUZZTIME) ./doc
+	go test -run '^$$' -fuzz FuzzDocAssignID -fuzztime $(FUZZTIME) ./doc
 
 lint:
 	go vet ./...
