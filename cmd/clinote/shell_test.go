@@ -30,7 +30,7 @@ func newSessionCap(t *testing.T, outputCap int) exec.Session {
 	if err != nil {
 		t.Skipf("%s unavailable: %v", testShell, err)
 	}
-	sess, err := ex.Open(context.Background(), t.TempDir()+"/notes.md")
+	sess, err := ex.Open(context.Background(), exec.Notebook{Path: t.TempDir() + "/notes.md"})
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
@@ -309,7 +309,7 @@ func TestCloseUnblocksAHungCommand(t *testing.T) {
 	if err != nil {
 		t.Skipf("%s unavailable: %v", testShell, err)
 	}
-	sess, err := ex.Open(context.Background(), t.TempDir()+"/notes.md")
+	sess, err := ex.Open(context.Background(), exec.Notebook{Path: t.TempDir() + "/notes.md"})
 	if err != nil {
 		t.Fatal(err)
 	}

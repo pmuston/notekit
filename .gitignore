@@ -3,7 +3,11 @@
 /noterun
 /noteserve
 /clinote
+/sqlnote
 /bin/
+
+# SQLite databases from manual testing
+*.db
 
 # Go test artifacts
 *.test

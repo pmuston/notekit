@@ -4,11 +4,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Repository state
 
-Go module `github.com/pmuston/notekit` on Go 1.25.4. **M0–M3 are complete and clinote v2
-is at functional v1 parity**: the kit (`meta`, `doc`, `exec`, `kind`, `run`, `serve`), the
-conformance corpus, and four binaries — `notefmt` (linter), `noterun` and `noteserve`
-(demos), and `clinote` (the first real consumer: a pty shell executor plus a `main`). The
-specs are the authority for everything that gets built:
+Go module `github.com/pmuston/notekit` on Go 1.25.4. **All four harvest validation gates
+are met.** The kit (`meta`, `doc`, `exec`, `kind`, `run`, `serve`), the conformance corpus,
+and five binaries: `notefmt` (linter), `noterun` and `noteserve` (demos), `clinote` (shell
+notebook, at functional v1 parity), and `sqlnote` (SQLite notebook — the non-shell consumer
+that gate 4 asked for). The specs are the authority for everything that gets built:
 
 | File | Owns |
 |---|---|
@@ -123,6 +123,7 @@ notekit/
   cmd/noterun/    the M1 demo: the full async loop, no server
   cmd/noteserve/  the M2 demo: the full HTMX loop in a browser
   cmd/clinote/    clinote v2 (M3): shell executor + main; ALL pty knowledge lives here
+  cmd/sqlnote/    sqlnote (gate 4): SQLite executor + main; ALL database knowledge here
   doc/            document model: parse, cells, slugs, byte-range splice, result writers
   meta/           info-string metadata grammar: parse + canonical serialise
   run/            run scheduler: async execution, capture limits, splice, atomic save
@@ -255,14 +256,33 @@ Further invariants worth internalising before touching `run` or `exec`:
 
 ## Writing an executor
 
-`cmd/clinote` is the reference. Two rules bind every executor, and both are easy to get
-wrong because v1 did the opposite:
+Two references, deliberately different in shape: `cmd/clinote` (a pty child, text results)
+and `cmd/sqlnote` (a database connection, structured results). Read whichever is closer.
+
+Three rules bind every executor. The first two are easy to get wrong because clinote v1 did
+the opposite:
 
 - **Return raw output.** ANSI stripping is the *format* layer's job (`doc.StripANSI`, via
   `run`). An executor that strips destroys the colour the browser renders.
 - **Bound your own capture, and say so.** Reading a pty into memory unbounded is how a
   runaway cell kills the process; `exec.Capture` helps. Set `exec.Result.Truncated` when
   you drop bytes — `run` cannot know otherwise, and would treat a short body as complete.
+- **Per-notebook configuration arrives in `exec.Notebook.Front`**, not on the executor.
+  One executor serves many notebooks, and §2 puts a notebook's own settings in its front
+  matter (`sqlnote-db`, `clinote-session`). Namespace your keys.
+
+Database-specific lessons from sqlnote:
+
+- **`sql.DB` is a pool, and a session is not.** Hold one dedicated `*sql.Conn` for the
+  session's lifetime. For an in-memory database every connection is a *separate empty
+  database*, so a pool silently loses everything between cells; even on a file, temp tables
+  and PRAGMAs live on the connection. This is what makes harvest R1 true for a database.
+- **Do not parse SQL to decide what a cell is.** One `Query` runs every statement and
+  returns the columns of whichever produced rows; zero columns means the cell had no final
+  `SELECT`. Splitting statements correctly means handling strings, comments and nested
+  quoting, and getting it subtly wrong would run the wrong thing.
+- **Render values exactly, not prettily.** `7 * 0.05` persists as `0.35000000000000003`.
+  csv is data other tools parse, and rounding for looks would silently change the value.
 
 Shell-specific lessons worth not relearning:
 
@@ -384,14 +404,16 @@ mechanism, superseded — though R7's *principle*, identity from content rather 
 position, is upheld; see cell identity above). Finding one of these in priortool is not a
 reason to build it here.
 
-One proven requirement has **no home in any current spec**: harvest R2, self-contained
-vs bound data modes — whether a notebook defines its own data (run-all from empty
-reconstructs it) or references an external store. The harvest calls this a general
-property rather than a Cypher quirk, but neither the kit spec nor the format spec
-mentions it. Worth raising rather than quietly dropping when the specs are next
-revised.
+**Harvest R2 now has a home, and it is not the format.** R2 — self-contained versus bound
+data modes — was the one proven requirement no spec mentioned. sqlnote answers it as *tool
+configuration*: no `sqlnote-db` in front matter means the notebook is self-contained and
+runs in memory, so a run from empty reconstructs its data; naming a file binds it to that
+store. No format rule was needed, which is why none existed.
 
-Validation gates run in order (harvest §5): (1) harvest adjudicated — done, 16 July
-2026; (2) format spec drafted with a golden-file conformance corpus — the current
-gate; (3) clinote v2 on the kit at functional v1 parity; (4) only then a second,
-non-shell consumer to test the abstraction.
+All four validation gates (harvest §5) are met: (1) harvest adjudicated, 16 July 2026;
+(2) format spec with a golden-file corpus, now free of placeholders; (3) clinote v2 on the
+kit at functional v1 parity; (4) sqlnote as a second, non-shell consumer. Gate 4's verdict:
+the abstraction held — `doc`, `meta`, `kind`, `run` and `serve` needed no change for SQL —
+but it was *incomplete*, and only a second domain could show it. `exec.Open` now receives
+front matter, and `doc.Notebook.Front()` exposes the passthrough keys §2 always promised
+"exposed to the runtime" but which nothing had implemented.

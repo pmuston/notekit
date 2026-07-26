@@ -143,3 +143,28 @@ func TestCaptureBoundedConcurrently(t *testing.T) {
 		t.Errorf("Overflowed() = %v, %d; want true, %d", over, count, 8*100*3-limit)
 	}
 }
+
+func TestNotebookFrontValue(t *testing.T) {
+	nb := Notebook{
+		Path:  "/notes.md",
+		Title: "T",
+		Front: map[string]string{"sqlnote-db": "./x.db", "blank": ""},
+	}
+
+	if got := nb.FrontValue("sqlnote-db", ":memory:"); got != "./x.db" {
+		t.Errorf("FrontValue(present) = %q", got)
+	}
+	if got := nb.FrontValue("absent", ":memory:"); got != ":memory:" {
+		t.Errorf("FrontValue(absent) = %q, want the default", got)
+	}
+	// Absent and empty are treated alike on purpose: `sqlnote-db:` with nothing after
+	// it says no more than omitting the key, and distinguishing them would assign
+	// meaning the format does not.
+	if got := nb.FrontValue("blank", ":memory:"); got != ":memory:" {
+		t.Errorf("FrontValue(empty) = %q, want the default", got)
+	}
+	// A nil map is the normal case for a notebook with no passthrough keys.
+	if got := (Notebook{}).FrontValue("any", "fallback"); got != "fallback" {
+		t.Errorf("FrontValue on a nil map = %q", got)
+	}
+}

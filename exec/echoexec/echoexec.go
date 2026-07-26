@@ -44,8 +44,8 @@ func New() *Executor { return &Executor{} }
 func (*Executor) Lang() string { return Lang }
 
 // Open creates a session. The notebook path is recorded but never written to.
-func (*Executor) Open(_ context.Context, notebookPath string) (exec.Session, error) {
-	return &Session{path: notebookPath}, nil
+func (*Executor) Open(_ context.Context, nb exec.Notebook) (exec.Session, error) {
+	return &Session{path: nb.Path}, nil
 }
 
 // Session implements [exec.Session]. It records what it was asked to do so tests can

@@ -82,7 +82,7 @@ func (e *ShellExecutor) Lang() string { return Lang }
 // The notebook's directory becomes the shell's working directory, so relative paths in a
 // cell mean what a reader expects. The file itself is never written to — persistence is
 // package run's job.
-func (e *ShellExecutor) Open(ctx context.Context, notebookPath string) (exec.Session, error) {
+func (e *ShellExecutor) Open(ctx context.Context, nb exec.Notebook) (exec.Session, error) {
 	path, err := osexec.LookPath(e.shell)
 	if err != nil {
 		return nil, fmt.Errorf("clinote: locating %s: %w", e.shell, err)
@@ -96,7 +96,7 @@ func (e *ShellExecutor) Open(ctx context.Context, notebookPath string) (exec.Ses
 	// notebook wants — state still carries between cells, because it is still one
 	// long-lived shell reading a stream (harvest R1).
 	cmd := osexec.Command(path)
-	if dir := dirOf(notebookPath); dir != "" {
+	if dir := dirOf(nb.Path); dir != "" {
 		cmd.Dir = dir
 	}
 	// Quiet every prompt the shell might emit. A prompt written between commands

@@ -31,6 +31,11 @@ type frontMatter struct {
 	span    Span // including both --- delimiter lines
 	version int
 	title   string
+	// scalars holds every indent-zero `key: value` pair, including the reserved
+	// ones. §2 requires passthrough keys to be "exposed to the runtime
+	// uninterpreted", and a tool that needs one — a database notebook naming its
+	// database — has no other way to reach it.
+	scalars map[string]string
 }
 
 // parseFrontMatter splits the leading front-matter block and reads its two
@@ -60,10 +65,21 @@ func parseFrontMatter(src []byte) (fm frontMatter, bodyStart int, err error) {
 	fm.span = Span{Start: 0, End: p}
 	body := src[open:closeStart]
 
-	version, found, title, err := frontMatterScalars(body)
+	scalars, err := frontMatterScalars(body)
 	if err != nil {
 		return fm, 0, err
 	}
+	version, found, title := 0, false, ""
+	if v, ok := scalars["notekit"]; ok {
+		n, convErr := strconv.Atoi(v)
+		if convErr != nil {
+			return fm, 0, &NotNotebookError{
+				Reason: fmt.Sprintf("`notekit` must be an integer, got %q", v),
+			}
+		}
+		version, found = n, true
+	}
+	title = unquoteScalar(scalars["title"])
 	if !found {
 		return fm, 0, &NotNotebookError{Reason: "front matter has no `notekit` key"}
 	}
@@ -72,7 +88,7 @@ func parseFrontMatter(src []byte) (fm frontMatter, bodyStart int, err error) {
 			Reason: fmt.Sprintf("format version %d is not supported (this tool implements %d)", version, Version),
 		}
 	}
-	fm.version, fm.title = version, title
+	fm.version, fm.title, fm.scalars = version, title, scalars
 	return fm, p, nil
 }
 
@@ -84,12 +100,14 @@ func hasDelimiter(src []byte, p int) bool {
 	return bytes.Equal(lineText(src, p, lineEnd(src, p)), []byte("---"))
 }
 
-// frontMatterScalars extracts `notekit` and `title` by scanning top-level lines.
+// frontMatterScalars reads every indent-zero `key: value` pair.
 //
-// This is deliberately not a YAML parser: it reads two scalars at indent zero and
-// ignores everything else, including nested structures, so no third-party YAML
-// dependency is needed and no passthrough key is ever reserialised.
-func frontMatterScalars(body []byte) (version int, found bool, title string, err error) {
+// This is deliberately not a YAML parser: it reads scalars at indent zero and ignores
+// everything else, including nested structures, so no YAML dependency is needed and no
+// passthrough key is ever reserialised. A key whose value is a nested block is reported
+// with an empty value — enough to know it is there, not enough to misread it.
+func frontMatterScalars(body []byte) (map[string]string, error) {
+	out := make(map[string]string)
 	for p := 0; p < len(body); {
 		e := lineEnd(body, p)
 		line := lineText(body, p, e)
@@ -105,22 +123,12 @@ func frontMatterScalars(body []byte) (version int, found bool, title string, err
 			continue
 		}
 		key := string(bytes.TrimSpace(line[:colon]))
-		val := strings.TrimSpace(string(line[colon+1:]))
-
-		switch key {
-		case "notekit":
-			n, convErr := strconv.Atoi(val)
-			if convErr != nil {
-				return 0, false, "", &NotNotebookError{
-					Reason: fmt.Sprintf("`notekit` must be an integer, got %q", val),
-				}
-			}
-			version, found = n, true
-		case "title":
-			title = unquoteScalar(val)
+		if key == "" {
+			continue
 		}
+		out[key] = strings.TrimSpace(string(line[colon+1:]))
 	}
-	return version, found, title, nil
+	return out, nil
 }
 
 // unquoteScalar strips one layer of matching YAML quotes. Titles are displayed,

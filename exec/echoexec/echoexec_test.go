@@ -30,7 +30,7 @@ func request(t *testing.T, source, info string) exec.Request {
 
 func session(t *testing.T) *Session {
 	t.Helper()
-	s, err := New().Open(context.Background(), "notes.md")
+	s, err := New().Open(context.Background(), exec.Notebook{Path: "notes.md"})
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}

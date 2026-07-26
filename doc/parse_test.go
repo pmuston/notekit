@@ -362,3 +362,58 @@ func TestSlugDivergesFromPriortoolOnlyOnEmptiness(t *testing.T) {
 		t.Errorf("SidecarName with an empty slug = %q", got)
 	}
 }
+
+// TestFrontExposesPassthroughKeys covers the §2 requirement nothing implemented until a
+// tool needed it: passthrough keys are "exposed to the runtime uninterpreted", and a
+// database notebook naming its database has no other way to reach one.
+func TestFrontExposesPassthroughKeys(t *testing.T) {
+	src := "---\n" +
+		"notekit: 1\n" +
+		"title: My Notebook\n" +
+		"sqlnote-db: ./analysis.db\n" +
+		"clinote-session: shell\n" +
+		"quoted: \"has spaces\"\n" +
+		"single: 'also quoted'\n" +
+		"empty:\n" +
+		"nested:\n" +
+		"  inner: 1\n" +
+		"list:\n" +
+		"  - one\n" +
+		"---\n\n## A\n\n```sh\nx\n```\n"
+	n := mustParse(t, src)
+	front := n.Front()
+
+	tests := map[string]string{
+		"notekit":         "1",
+		"title":           "My Notebook",
+		"sqlnote-db":      "./analysis.db",
+		"clinote-session": "shell",
+		"quoted":          "has spaces",
+		"single":          "also quoted",
+		// A key introducing a nested block appears with an empty value: enough to know
+		// it is there, not enough to misread it.
+		"empty":  "",
+		"nested": "",
+		"list":   "",
+	}
+	for k, want := range tests {
+		if got, ok := front[k]; !ok || got != want {
+			t.Errorf("Front()[%q] = %q, %v; want %q", k, got, ok, want)
+		}
+	}
+	// Nested content is not promoted to a top-level key.
+	if _, ok := front["inner"]; ok {
+		t.Error("a nested key leaked into the top level")
+	}
+
+	// The map is a copy: a tool mutating it must not affect the notebook.
+	front["sqlnote-db"] = "tampered"
+	if n.Front()["sqlnote-db"] != "./analysis.db" {
+		t.Error("Front() returns the live map rather than a copy")
+	}
+
+	// And exposing them changed nothing about round-trip identity.
+	if string(n.Bytes()) != src {
+		t.Error("round trip changed bytes")
+	}
+}

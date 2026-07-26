@@ -34,10 +34,46 @@ type Executor interface {
 	// the source fence's tag.
 	Lang() string
 
-	// Open creates a session for one notebook. The path is informational — for
-	// resolving relative paths or naming a working directory — and must not be
-	// written to.
-	Open(ctx context.Context, notebookPath string) (Session, error)
+	// Open creates a session for one notebook.
+	//
+	// It receives the notebook's identity and front matter rather than just its path,
+	// because a domain's session is often configured *by* the notebook: a database
+	// executor needs to know which database, and §2 puts that in front matter. The
+	// path is informational — for resolving relative paths or naming a working
+	// directory — and must not be written to.
+	Open(ctx context.Context, nb Notebook) (Session, error)
+}
+
+// Notebook is what an executor learns about the notebook it is opening a session for.
+//
+// It carries front matter because that is where per-notebook configuration lives (§2),
+// and a session is per-notebook: one executor may serve several notebooks, each naming a
+// different database or connection, so configuring the *executor* would not do.
+type Notebook struct {
+	// Path is the notebook file. Read it if you must resolve something relative to
+	// it; never write to it — persistence is package run's job, through package doc.
+	Path string
+
+	// Title is the notebook's `title` front-matter scalar, empty when absent.
+	Title string
+
+	// Front holds the front matter's indent-zero scalars, delivered uninterpreted.
+	// §2 reserves only `notekit` and `title`; everything else is a tool's own, and
+	// convention namespaces it — `sqlnote-db`, `clinote-session`. Nested structures
+	// appear with an empty value, since the format keeps them as opaque bytes.
+	Front map[string]string
+}
+
+// FrontValue returns a front-matter scalar, or def when it is absent or empty.
+//
+// Absent and empty are treated alike on purpose: `sqlnote-db:` with nothing after it says
+// no more than omitting the key, and a tool that distinguished them would be assigning
+// meaning the format does not.
+func (n Notebook) FrontValue(key, def string) string {
+	if v, ok := n.Front[key]; ok && v != "" {
+		return v
+	}
+	return def
 }
 
 // Session is the per-notebook state an executor owns: cwd, environment and shell

@@ -963,3 +963,66 @@ func TestAppendThenDeleteRestoresEveryCell(t *testing.T) {
 		t.Error("the result does not round-trip")
 	}
 }
+
+func TestProseAfterWhenResultsRunToTheSectionEnd(t *testing.T) {
+	// The clamp exists for a section whose result position ends exactly where the
+	// section does, leaving nothing after it to edit.
+	n := mustParse(t, front+"## H\n\n```sh\na\n```\n\n```output\nr\n```\n")
+	c := n.Cells()[0]
+	got := c.ProseAfter()
+	if !got.Empty() {
+		t.Errorf("ProseAfter = %v (%q), want empty", got, string(got.In(n.Bytes())))
+	}
+	if got.Start < 0 || got.End > len(n.Bytes()) {
+		t.Errorf("ProseAfter = %v is out of bounds", got)
+	}
+}
+
+func TestInsertCellClampsPosition(t *testing.T) {
+	// A boundary before the body start clamps forward, so an insertion can never land
+	// inside the front matter.
+	n := mustParse(t, front+"## A\n\n```sh\na\n```\n")
+	edit, err := n.insertCellAt(NewCell{Heading: "H", Lang: "sh", Body: "x\n"}, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if edit.Span.Start < n.Body().Start {
+		t.Errorf("insertion at %d is inside the front matter (body starts at %d)",
+			edit.Span.Start, n.Body().Start)
+	}
+	out, err := n.Apply(edit)
+	if err != nil {
+		t.Fatal(err)
+	}
+	n2 := mustParse(t, string(out))
+	if n2.Version() != Version {
+		t.Error("the front matter was damaged")
+	}
+	if len(n2.Cells()) != 2 {
+		t.Errorf("got %d cells, want 2:\n%s", len(n2.Cells()), out)
+	}
+
+	// And a position past the end clamps back.
+	edit, err = n.insertCellAt(NewCell{Heading: "Z", Lang: "sh", Body: "z\n"}, len(n.Bytes())+500)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := n.Apply(edit); err != nil {
+		t.Errorf("Apply after clamping: %v", err)
+	}
+}
+
+func TestSetSourceOnATildeFenceWithNoRecordedChar(t *testing.T) {
+	// A cell built by hand rather than parsed has no fence character recorded, and the
+	// default must still produce a valid fence.
+	n := mustParse(t, front+"## H\n\n```sh\na\n```\n")
+	c := n.Cells()[0]
+	c.fenceCh = 0
+	edit, err := c.SetSource("new\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(edit.Text, "```sh") {
+		t.Errorf("edit = %q, want a backtick fence by default", edit.Text)
+	}
+}

@@ -1,4 +1,4 @@
-.PHONY: build test race fuzz lint vendor all notefmt noterun noteserve clinote check-corpus
+.PHONY: build test race fuzz lint vendor all notefmt noterun noteserve clinote sqlnote check-corpus
 
 all: lint test
 
@@ -20,6 +20,10 @@ noteserve:
 # clinote v2 (M3): the first real consumer — a shell executor plus a main.
 clinote:
 	go build -o clinote ./cmd/clinote
+
+# sqlnote (gate 4): the second consumer, and the first non-shell domain.
+sqlnote:
+	go build -o sqlnote ./cmd/sqlnote
 
 # Lint the corpus with the tool itself: a self-check that the acceptance suite's
 # own files are clean.

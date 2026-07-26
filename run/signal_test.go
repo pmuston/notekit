@@ -156,7 +156,7 @@ func TestShutdownReportsSessionCloseErrors(t *testing.T) {
 type stubbornExecutor struct{ n int }
 
 func (*stubbornExecutor) Lang() string { return "stubborn" }
-func (e *stubbornExecutor) Open(context.Context, string) (exec.Session, error) {
+func (e *stubbornExecutor) Open(context.Context, exec.Notebook) (exec.Session, error) {
 	return &stubbornSession{e: e}, nil
 }
 func (e *stubbornExecutor) closes() int { return e.n }

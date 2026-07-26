@@ -81,6 +81,10 @@ The domain boundary. An executor's responsibilities:
 
 - Declare its **language tag** (the info-string tag it claims, e.g. `sh`, `sql`,
   `cypher`, `redis`).
+- Be told, on open, what the notebook says about itself — path, title, and front-matter
+  passthrough scalars. A domain's session is often configured *by* the notebook (§2): a
+  database executor needs to know which database, and one executor serves many notebooks,
+  so configuring the executor would not do. Found by gate 4's first non-shell consumer.
 - Own its **session**: opaque state created when a notebook is opened and destroyed
   when it is closed or the process exits. One session per notebook (harvest R1).
   Whether the engine behind the session is internal (embedded store, pty child) or
@@ -89,6 +93,12 @@ The domain boundary. An executor's responsibilities:
   a context (for cancellation), return a **typed result** — a kind from the
   rendering contract plus its payload — or a typed error carrying the domain's
   message and optional numeric status for the `error` block.
+- **Bound its own capture, and report having done so.** An executor reading a pty or a
+  cursor must bound memory before the runtime sees a byte, and having dropped output only
+  it knows: without the flag, an executor capping at exactly the durable cap would hand
+  the runtime a body it considered complete.
+- **Return raw output.** ANSI stripping and truncation markers are the format layer's job.
+  An executor that strips destroys the colour the browser renders.
 - Honour cancellation and never write to the notebook file itself; persistence is
   `run`'s job through `doc`.
 

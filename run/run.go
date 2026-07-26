@@ -244,7 +244,13 @@ func (s *Scheduler) Open(ctx context.Context, path string, ex exec.Executor) err
 	}
 	s.mu.Unlock()
 
-	sess, err := ex.Open(ctx, path)
+	// The executor is told what the notebook says about itself, because a domain's
+	// session is often configured by its front matter (§2).
+	sess, err := ex.Open(ctx, exec.Notebook{
+		Path:  path,
+		Title: nb.Title(),
+		Front: nb.Front(),
+	})
 	if err != nil {
 		return fmt.Errorf("run: opening session for %s: %w", path, err)
 	}

@@ -5,10 +5,9 @@
 > milestone list glosses over, and lists the spec questions each stage will force.
 > Not normative: the three specs govern. This document is disposable once M3 lands.
 
-Status: draft · **M0–M3 complete, at functional v1 parity, and every spec question
-resolved.** No placeholders remain in any spec. This document is now disposable per its own
-preamble; the specs govern. The frontier is validation gate 4: a second, non-shell consumer
-to test the abstraction against a non-shell domain.
+Status: draft · **M0–M3 complete, every spec question resolved, and validation gate 4 met**
+by sqlnote — the first non-shell consumer. No placeholders remain in any spec. This document
+is now disposable per its own preamble; the specs govern.
 
 ---
 
@@ -402,6 +401,75 @@ Deferring these was right — each raised something a hasty version would have g
   inserted *above* the cell being run so every offset below shifts.
 - **The new-cell tag comes from the scheduler**, not from a `serve` option. A tool that
   forgot to set it would silently offer to create cells nothing could run.
+
+## 6a. Gate 4 — sqlnote, the first non-shell consumer — ✅ COMPLETE
+
+Harvest validation gate 4: "a second consumer (sqlnote or a graphtool successor) to test the
+abstraction against a non-shell domain." A SQLite notebook, using `modernc.org/sqlite` per
+the project's driver policy — pure Go, so the binary stays a single static file.
+
+**The abstraction held.** `doc`, `meta`, `kind`, `run` and `serve` needed no change to
+accommodate SQL. Everything domain-specific is 300 lines in `cmd/sqlnote/sql.go`. The one
+contract change was real but small, and it is a gap rather than a mismatch — see below.
+
+### The one thing gate 4 forced
+
+**`exec.Executor.Open` now receives the notebook's front matter**, as an `exec.Notebook`
+carrying path, title and passthrough scalars. A shell executor does not care which notebook
+it serves; a database executor cannot start without knowing *which database*, and §2 puts
+that in front matter. One executor serves many notebooks, each possibly naming a different
+database, so configuring the executor would not do — it has to arrive per-session.
+
+Underneath that sat a **conformance gap nothing had noticed**: §2 says passthrough keys are
+"exposed to the runtime uninterpreted", and `doc` exposed none of them. `Notebook.Front()`
+now does, reading indent-zero scalars the same way the reserved two are read. Nested blocks
+appear with an empty value — enough to know they are there, not enough to misread them —
+and the block itself stays an opaque byte range, which is what keeps §2's byte-for-byte
+round-trip free of a YAML marshaller.
+
+That is a satisfying result for the gate: the abstraction did not leak, but it *was*
+incomplete, and only a second domain could show it.
+
+### Harvest R2 finally has a home
+
+R2 — self-contained versus bound data modes — was the one proven requirement with no home
+in any spec, flagged in CLAUDE.md as "worth raising rather than quietly dropping". sqlnote
+answers it, and the answer is that it belongs to **tools, not the format**:
+
+- No `sqlnote-db` in front matter → the notebook is **self-contained**. It runs in memory,
+  its cells build the data, and a run from empty reconstructs it. Nothing is written beside
+  the notebook.
+- `sqlnote-db: ./analysis.db` → the notebook is **bound** to that store, resolved against
+  the notebook's own directory so it means the same wherever the tool was launched.
+
+No format rule was needed, which is why no spec mentioned it. R2 is real, and it is
+configuration.
+
+### What a non-shell domain does differently
+
+- **Results arrive structured.** A `SELECT` returns rows and columns, so `kind.Table` is
+  reached without the executor formatting anything by hand — the first genuine exercise of
+  that path, since the shell only ever produced text or hand-rolled csv. csv is the default
+  because the durable form is what a reader sees on GitHub; `{format=jsonl}` is there for
+  when NULL must stay distinct from an empty string, which csv cannot express.
+- **Errors carry engine codes.** SQLite's result codes map straight onto
+  `exec.Error.Status`: a syntax error is 1, a unique-constraint violation is the extended
+  code 1555. Both persist as first-class `error` blocks (§7).
+- **The session is a connection, and that is load-bearing.** `sql.DB` is a *pool*, and for
+  an in-memory database every connection is a **separate empty database** — a pool would
+  silently lose everything between cells. Even on a file, temp tables and PRAGMAs live on
+  the connection. Holding one dedicated `*sql.Conn` for the session's lifetime is what makes
+  harvest R1's "state carries between cells" true for a database, and a test proves it with
+  a temp table read from a later cell.
+- **One `Query` serves both cell shapes.** The driver runs every statement in the text and
+  returns the columns of whichever produced rows; a cell with no final `SELECT` comes back
+  with zero columns. That is how the two are told apart *without parsing SQL* — splitting
+  statements correctly means handling strings, comments and nested quoting, and getting it
+  subtly wrong would run the wrong thing.
+- **Float rendering is exact, not pretty.** `7 * 0.05` persists as `0.35000000000000003`,
+  the shortest representation that round-trips. It looks like a bug and is not: csv is data
+  other tools parse, and rounding for looks would silently change the value. The `sqlite3`
+  CLI prints fewer digits; a notebook's durable form should not.
 
 ## 7. Testing strategy
 

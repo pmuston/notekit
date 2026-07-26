@@ -1063,7 +1063,7 @@ type capturingExecutor struct {
 }
 
 func (c *capturingExecutor) Lang() string { return c.lang }
-func (c *capturingExecutor) Open(context.Context, string) (exec.Session, error) {
+func (c *capturingExecutor) Open(context.Context, exec.Notebook) (exec.Session, error) {
 	return &capturingSession{seen: c.seen}, nil
 }
 
@@ -1090,7 +1090,7 @@ func TestOpenSessionFailure(t *testing.T) {
 type failingExecutor struct{}
 
 func (*failingExecutor) Lang() string { return "bad" }
-func (*failingExecutor) Open(context.Context, string) (exec.Session, error) {
+func (*failingExecutor) Open(context.Context, exec.Notebook) (exec.Session, error) {
 	return nil, fmt.Errorf("no engine here")
 }
 
@@ -1214,7 +1214,7 @@ func TestExecutorReportedTruncationIsHonoured(t *testing.T) {
 type boundedExecutor struct{}
 
 func (*boundedExecutor) Lang() string { return "bounded" }
-func (*boundedExecutor) Open(context.Context, string) (exec.Session, error) {
+func (*boundedExecutor) Open(context.Context, exec.Notebook) (exec.Session, error) {
 	return &boundedSession{}, nil
 }
 

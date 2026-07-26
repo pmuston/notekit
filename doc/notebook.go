@@ -64,6 +64,25 @@ func (n *Notebook) Title() string { return n.fm.title }
 // delimiter lines.
 func (n *Notebook) FrontMatter() Span { return n.fm.span }
 
+// Front returns the front matter's indent-zero scalars, quotes stripped.
+//
+// §2 makes every key but `notekit` and `title` passthrough — "exposed to the runtime
+// uninterpreted" — and this is that exposure. A tool reads its own namespaced keys here:
+// `sqlnote-db`, `clinote-session`. The format assigns them no meaning, so neither does
+// this method; interpreting them is the tool's job.
+//
+// Scalars only. A key introducing a nested block appears with an empty value, which is
+// enough to know it is there and not enough to misread it — the block itself stays an
+// opaque byte range, which is how §2's byte-for-byte round-trip is guaranteed without a
+// YAML marshaller.
+func (n *Notebook) Front() map[string]string {
+	out := make(map[string]string, len(n.fm.scalars))
+	for k, v := range n.fm.scalars {
+		out[k] = unquoteScalar(v)
+	}
+	return out
+}
+
 // Body returns the span of everything after the front matter.
 func (n *Notebook) Body() Span { return n.body }
 
