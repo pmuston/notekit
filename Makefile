@@ -1,4 +1,4 @@
-.PHONY: build test race fuzz lint vendor all notefmt noterun noteserve check-corpus
+.PHONY: build test race fuzz lint vendor all notefmt noterun noteserve clinote check-corpus
 
 all: lint test
 
@@ -16,6 +16,10 @@ noterun:
 # The M2 demo: the full HTMX loop in a browser.
 noteserve:
 	go build -o noteserve ./cmd/noteserve
+
+# clinote v2 (M3): the first real consumer — a shell executor plus a main.
+clinote:
+	go build -o clinote ./cmd/clinote
 
 # Lint the corpus with the tool itself: a self-check that the acceptance suite's
 # own files are clean.

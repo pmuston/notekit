@@ -116,3 +116,62 @@ func (c *Cell) AssignID(id string) (Edit, error) {
 func (n *Notebook) EditProse(span Span, text string) Edit {
 	return Edit{Span: span, Text: text}
 }
+
+// SetSource returns the edit that replaces the cell's fence body with text,
+// rewriting the whole source fence.
+//
+// The fence is re-emitted rather than only its body, because fence-length safety
+// applies to a source fence as much as to a result (§6): a body containing a run of
+// backticks at least as long as the fence would terminate it early and silently turn the
+// rest of the cell into prose. Widening the fence is not silent repair — §10 permits a
+// tool to rewrite the byte ranges it edited, and the source fence is precisely what is
+// being edited here. The info string is preserved exactly, including any `id`.
+//
+// It fails on an unclosed source fence, for the same reason [Cell.SetResult] does: such
+// a fence runs to end of file, and closing it on the author's behalf would be the repair
+// §10 forbids. `notefmt` reports the condition so the author can fix it.
+func (c *Cell) SetSource(text string) (Edit, error) {
+	if !c.Closed {
+		return Edit{}, fmt.Errorf(
+			"notekit: cell %q has an unclosed source fence; close it before editing the cell",
+			c.HeadingText)
+	}
+	ch := c.fenceCh
+	if ch != '`' && ch != '~' {
+		ch = '`'
+	}
+
+	body := text
+	if body != "" && !strings.HasSuffix(body, "\n") {
+		body += "\n"
+	}
+
+	// A tilde fence's length is bounded by tilde runs, a backtick fence's by backtick
+	// runs; measuring the wrong character would leave the fence breakable.
+	n := runLen(body, ch) + 1
+	if n < 3 {
+		n = 3
+	}
+	fence := strings.Repeat(string(ch), n)
+
+	return Edit{
+		Span: c.Source,
+		Text: fence + c.Info + "\n" + body + fence + "\n",
+	}, nil
+}
+
+// runLen returns the longest run of ch in s.
+func runLen(s string, ch byte) int {
+	longest, run := 0, 0
+	for i := 0; i < len(s); i++ {
+		if s[i] == ch {
+			run++
+			if run > longest {
+				longest = run
+			}
+			continue
+		}
+		run = 0
+	}
+	return longest
+}

@@ -1159,3 +1159,68 @@ func TestSaveFailureIsReportedAndLeavesTheFileAlone(t *testing.T) {
 		t.Errorf("the notebook changed despite the save failing:\n got %q\nwant %q", got, before)
 	}
 }
+
+// TestExecutorReportedTruncationIsHonoured covers the kit change M3 forced: an executor
+// that bounded its own capture reports it, and the flag must survive even though the
+// body it returned is under the durable cap.
+func TestExecutorReportedTruncationIsHonoured(t *testing.T) {
+	reg := kind.NewRegistry()
+	if err := reg.Register(kind.Kind{Name: "bounded", Durable: func(p any) (kind.Durable, error) {
+		body, _ := p.(string)
+		return kind.Durable{Inline: &kind.Inline{Body: body}}, nil
+	}}); err != nil {
+		t.Fatal(err)
+	}
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "notes.md")
+	os.WriteFile(path, []byte(front+"## Bounded\n\n```bounded\nx\n```\n"), 0o644)
+
+	s := New(WithRegistry(reg), WithClock(func() time.Time { return fixedNow }))
+	t.Cleanup(func() { _ = s.Shutdown(context.Background()) })
+	if err := s.Open(context.Background(), path, &boundedExecutor{}); err != nil {
+		t.Fatal(err)
+	}
+
+	id, err := s.Submit(path, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	var r Run
+	for {
+		r, _ = s.State(id)
+		if r.State.Terminal() {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("stuck")
+		}
+		time.Sleep(time.Millisecond)
+	}
+	if r.State != Done {
+		t.Fatalf("state = %v (%v)", r.State, r.Err)
+	}
+	if !r.Truncated {
+		t.Error("Truncated = false; the executor's own truncation was lost")
+	}
+	b, _ := os.ReadFile(path)
+	if !strings.Contains(string(b), "truncated}") {
+		t.Errorf("truncated flag missing from the notebook:\n%s", b)
+	}
+}
+
+// boundedExecutor returns a short body but reports that it dropped output.
+type boundedExecutor struct{}
+
+func (*boundedExecutor) Lang() string { return "bounded" }
+func (*boundedExecutor) Open(context.Context, string) (exec.Session, error) {
+	return &boundedSession{}, nil
+}
+
+type boundedSession struct{}
+
+func (*boundedSession) Execute(context.Context, exec.Request) (exec.Result, error) {
+	return exec.Result{Kind: "bounded", Payload: "short body\n", Truncated: true}, nil
+}
+func (*boundedSession) Close(context.Context) error { return nil }

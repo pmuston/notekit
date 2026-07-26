@@ -40,6 +40,7 @@ type block struct {
 	tag      string // blkFence: info string tag
 	body     Span   // blkFence: body, excluding both fence lines
 	closed   bool   // blkFence: false when the fence is unterminated at end of file
+	fenceCh  byte   // blkFence: '`' or '~'
 
 	attrs string // blkComment: text after the provenance prefix
 	dest  string // blkImage: link destination
@@ -99,7 +100,7 @@ func scanBlocks(src []byte, start int) []block {
 
 // scanFence consumes a fenced code block starting at its opening line.
 func scanFence(src []byte, p, e int, line []byte, ch byte, n, infoAt int) block {
-	b := block{kind: blkFence}
+	b := block{kind: blkFence, fenceCh: ch}
 	b.span.Start = p
 	b.infoSpan = Span{Start: p + infoAt, End: p + len(line)}
 	b.info = string(src[b.infoSpan.Start:b.infoSpan.End])

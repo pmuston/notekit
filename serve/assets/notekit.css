@@ -57,6 +57,9 @@ pre.nk-source, pre.nk-output, pre.nk-error {
   white-space: pre;
 }
 pre.nk-source { background: var(--nk-surface); border: 1px solid var(--nk-border); }
+pre.nk-source:hover { border-color: var(--nk-accent); }
+pre.nk-source:focus-visible { outline: 2px solid var(--nk-accent); outline-offset: 2px; }
+textarea.nk-source-edit { min-height: 8rem; }
 pre.nk-output { background: var(--nk-surface); border: 1px solid var(--nk-border); }
 pre.nk-error {
   background: var(--nk-error-bg);

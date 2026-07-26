@@ -13,6 +13,12 @@
   <h1 class="nk-title">{{.Title}}</h1>
   <p class="nk-path">{{.Path}}</p>
 
+  {{if .Cells}}
+  <p><button class="nk-btn"
+             hx-post="{{.Base}}/cells/run-all"
+             hx-swap="none">Run all</button></p>
+  {{end}}
+
   {{template "prose" .Preamble}}
 
   {{range .Cells}}{{template "cell" .}}{{end}}

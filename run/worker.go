@@ -163,6 +163,9 @@ func (s *Scheduler) persist(on *openNotebook, index int, result exec.Result, exe
 	if durable.Inline != nil {
 		s.setLiveBody(on.path, index, durable.Inline.Body)
 		body, truncated := doc.Truncate(durable.Inline.Body, s.cap)
+		// The executor may already have dropped output to bound its own memory, in
+		// which case the body is short of the cap and our own check would miss it.
+		truncated = truncated || result.Truncated
 		block := doc.ResultBlock{
 			Form:      doc.ResultOutput,
 			Format:    durable.Inline.Format,

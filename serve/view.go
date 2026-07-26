@@ -39,6 +39,9 @@ type cellView struct {
 	ProseBefore proseView
 	ProseAfter  proseView
 	Result      resultView
+
+	// Editing switches the source fence for a textarea.
+	Editing bool
 }
 
 // resultView is a rendered result.
@@ -70,6 +73,10 @@ type flashView struct {
 }
 
 // runningView is the polling fragment shown while a cell runs.
+//
+// It carries the run ID so the fragment can offer a Cancel button as well as re-arm the
+// poll: interrupting a long command was a v1 feature, and the scheduler has always
+// supported it.
 type runningView struct {
 	Base   string
 	Index  int
@@ -100,13 +107,13 @@ func (s *Server) buildPage() (pageView, error) {
 		Preamble: s.proseViewFor(src, "preamble", nb.Preamble(), false),
 	}
 	for i, c := range nb.Cells() {
-		page.Cells = append(page.Cells, s.buildCell(src, i, c))
+		page.Cells = append(page.Cells, s.buildCell(src, i, c, false))
 	}
 	return page, nil
 }
 
 // buildCell assembles one cell's view.
-func (s *Server) buildCell(src []byte, i int, c *doc.Cell) cellView {
+func (s *Server) buildCell(src []byte, i int, c *doc.Cell, editing bool) cellView {
 	v := cellView{
 		Base:        s.base,
 		Index:       i,
@@ -118,6 +125,7 @@ func (s *Server) buildCell(src []byte, i int, c *doc.Cell) cellView {
 		ProseBefore: s.proseViewFor(src, strconv.Itoa(i)+"-before", c.ProseBefore(), false),
 		ProseAfter:  s.proseViewFor(src, strconv.Itoa(i)+"-after", c.ProseAfter(), false),
 		Result:      s.buildResult(src, i, c),
+		Editing:     editing,
 	}
 
 	// The reasons a cell cannot be run are spec conditions, not UI preferences, so

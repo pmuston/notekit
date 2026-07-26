@@ -786,3 +786,251 @@ func TestTableHeadersAreKeyboardReachable(t *testing.T) {
 		t.Errorf("table headers are not focusable:\n%s", body)
 	}
 }
+
+// The tests below cover the three gaps clinote v1's route surface exposed. All three are
+// kit features every tool needs, which is what M3 exists to discover.
+
+func TestSourceEditing(t *testing.T) {
+	h := newHarness(t, "## Cell\n\n```echo {id=aaaa2345}\noriginal\n```\n\n```output\nold result\n```\n")
+
+	// The rendered source offers an editor, and is keyboard-reachable.
+	rec := h.get("/cells/0/source")
+	body := rec.Body.String()
+	for _, want := range []string{"original", "edit=1", `role="button"`, `tabindex="0"`} {
+		if !strings.Contains(body, want) {
+			t.Errorf("rendered source missing %q:\n%s", want, body)
+		}
+	}
+
+	rec = h.get("/cells/0/source?edit=1")
+	if !strings.Contains(rec.Body.String(), `name="source"`) {
+		t.Errorf("no editor:\n%s", rec.Body.String())
+	}
+
+	rec = h.do(http.MethodPut, "/cells/0/source", url.Values{"source": {"rewritten\nsecond line\n"}})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("PUT = %d: %s", rec.Code, rec.Body.String())
+	}
+
+	got := h.contents()
+	// The info string, including the id, is preserved exactly (§5.1: ids are immutable).
+	want := front + "## Cell\n\n```echo {id=aaaa2345}\nrewritten\nsecond line\n```\n\n```output\nold result\n```\n"
+	if got != want {
+		t.Errorf("notebook:\n got %q\nwant %q", got, want)
+	}
+	nb := mustParse(t, got)
+	if nb.Cells()[0].ID != "aaaa2345" {
+		t.Errorf("the id was lost: %q", nb.Cells()[0].ID)
+	}
+	if len(nb.Cells()[0].Results) != 1 {
+		t.Error("the result should be untouched by a source edit")
+	}
+}
+
+func mustParse(t *testing.T, src string) *doc.Notebook {
+	t.Helper()
+	nb, err := doc.Parse([]byte(src))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	return nb
+}
+
+// TestSourceEditWidensTheFence is the hazard a naive body-only splice would create: a
+// body containing a backtick run at least as long as the fence would terminate it early
+// and silently turn the rest of the cell into prose.
+func TestSourceEditWidensTheFence(t *testing.T) {
+	h := newHarness(t, "## Cell\n\n```echo\nplain\n```\n")
+
+	rec := h.do(http.MethodPut, "/cells/0/source",
+		url.Values{"source": {"printf '```\\n'\necho done\n"}})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("PUT = %d: %s", rec.Code, rec.Body.String())
+	}
+
+	got := h.contents()
+	if !strings.Contains(got, "````echo\n") {
+		t.Errorf("the fence was not widened:\n%s", got)
+	}
+	nb := mustParse(t, got)
+	if n := len(nb.Cells()); n != 1 {
+		t.Fatalf("got %d cells, want 1 — the fence broke:\n%s", n, got)
+	}
+	if body := nb.Cells()[0].SourceText(); !strings.Contains(body, "echo done") {
+		t.Errorf("body truncated at the inner fence: %q", body)
+	}
+}
+
+func TestSourceEditErrors(t *testing.T) {
+	t.Run("cell out of range", func(t *testing.T) {
+		h := newHarness(t, "## A\n\n```echo\nx\n```\n")
+		if rec := h.do(http.MethodPut, "/cells/9/source", url.Values{"source": {"y"}}); rec.Code != http.StatusBadRequest {
+			t.Errorf("code = %d", rec.Code)
+		}
+		if rec := h.get("/cells/9/source"); rec.Code != http.StatusBadRequest {
+			t.Errorf("GET code = %d", rec.Code)
+		}
+	})
+	t.Run("unclosed fence is refused", func(t *testing.T) {
+		// Closing it on the author's behalf would be the repair §10 forbids.
+		h := newHarness(t, "## A\n\n```echo\nno close\n")
+		before := h.contents()
+		rec := h.do(http.MethodPut, "/cells/0/source", url.Values{"source": {"y\n"}})
+		if rec.Code != http.StatusConflict {
+			t.Fatalf("code = %d, want %d: %s", rec.Code, http.StatusConflict, rec.Body.String())
+		}
+		if h.contents() != before {
+			t.Error("nothing should have been written")
+		}
+	})
+	t.Run("fence widening contains an injected heading", func(t *testing.T) {
+		// A body that tries to close its own fence and open a new section cannot:
+		// widening measures the backtick run in the body, so the whole thing stays
+		// inside one wider fence and the "heading" is code. The cell-count check in
+		// the handler is defence in depth behind that, not the mechanism.
+		h := newHarness(t, "## A\n\n```echo\nx\n```\n")
+		rec := h.do(http.MethodPut, "/cells/0/source",
+			url.Values{"source": {"x\n```\n\n## Injected\n\n```echo\ny\n"}})
+		if rec.Code != http.StatusOK {
+			t.Fatalf("code = %d: %s", rec.Code, rec.Body.String())
+		}
+		nb := mustParse(t, h.contents())
+		if n := len(nb.Cells()); n != 1 {
+			t.Fatalf("got %d cells, want 1 — the injection escaped:\n%s", n, h.contents())
+		}
+		if !strings.Contains(nb.Cells()[0].SourceText(), "## Injected") {
+			t.Errorf("the heading should be contained as code: %q", nb.Cells()[0].SourceText())
+		}
+		if !strings.Contains(h.contents(), "````echo") {
+			t.Errorf("the fence was not widened:\n%s", h.contents())
+		}
+	})
+}
+
+func TestCancelRoute(t *testing.T) {
+	h := newHarness(t, "## Slow\n\n```echo {delay=3s}\nx\n```\n")
+
+	rec := h.do(http.MethodPost, "/cells/0/run", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST run = %d", rec.Code)
+	}
+	// The polling fragment offers a Cancel button, which v1 had and v2 lacked.
+	if !strings.Contains(rec.Body.String(), "/runs/r1/cancel") {
+		t.Errorf("no cancel affordance:\n%s", rec.Body.String())
+	}
+
+	rec = h.do(http.MethodPost, "/runs/r1/cancel", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST cancel = %d: %s", rec.Code, rec.Body.String())
+	}
+
+	// The run reaches Cancelled and nothing is persisted.
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		r, ok := h.sch.State("r1")
+		if ok && r.State.Terminal() {
+			if r.State != run.Cancelled {
+				t.Fatalf("state = %v, want cancelled", r.State)
+			}
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("run never reached a terminal state")
+		}
+		time.Sleep(2 * time.Millisecond)
+	}
+	if len(mustParse(t, h.contents()).Cells()[0].Results) != 0 {
+		t.Error("a cancelled run must persist nothing")
+	}
+}
+
+func TestCancelUnknownRun(t *testing.T) {
+	h := newHarness(t, "## A\n\n```echo\nx\n```\n")
+	if rec := h.do(http.MethodPost, "/runs/r999/cancel", nil); rec.Code != http.StatusNotFound {
+		t.Errorf("code = %d, want 404", rec.Code)
+	}
+}
+
+func TestCancelFinishedRunSaysSo(t *testing.T) {
+	h := newHarness(t, "## A\n\n```echo\nx\n```\n")
+	h.runCell(0)
+	rec := h.do(http.MethodPost, "/runs/r1/cancel", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("code = %d", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), "already finished") {
+		t.Errorf("body = %q, want it to say the run had finished", rec.Body.String())
+	}
+}
+
+func TestRunAll(t *testing.T) {
+	h := newHarness(t, "## A\n\n```echo\nfirst\n```\n\n"+
+		"## B\n\n```echo\nsecond\n```\n\n"+
+		"## C\n\n```sql\nSELECT 1\n```\n")
+
+	rec := h.do(http.MethodPost, "/cells/run-all", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST run-all = %d: %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "running 2 cells") {
+		t.Errorf("body = %q, want 2 submitted", rec.Body.String())
+	}
+	// The sql cell is skipped rather than failing the request.
+	if !strings.Contains(rec.Body.String(), "1 skipped") {
+		t.Errorf("body = %q, want the skip reported", rec.Body.String())
+	}
+	// HX-Refresh tells the browser to reload so each cell shows its own state.
+	if rec.Header().Get("HX-Refresh") != "true" {
+		t.Errorf("HX-Refresh = %q", rec.Header().Get("HX-Refresh"))
+	}
+
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		done := 0
+		for _, r := range h.sch.Runs() {
+			if r.State.Terminal() {
+				done++
+			}
+		}
+		if done == 2 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("run-all never finished")
+		}
+		time.Sleep(2 * time.Millisecond)
+	}
+
+	cells := mustParse(t, h.contents()).Cells()
+	for i := 0; i < 2; i++ {
+		if len(cells[i].Results) != 1 {
+			t.Errorf("cell %d has %d results, want 1", i, len(cells[i].Results))
+		}
+	}
+	if len(cells[2].Results) != 0 {
+		t.Error("the sql cell should not have run")
+	}
+}
+
+func TestRunAllWithNothingRunnable(t *testing.T) {
+	h := newHarness(t, "## Only sql\n\n```sql\nSELECT 1\n```\n")
+	rec := h.do(http.MethodPost, "/cells/run-all", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("code = %d", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), "nothing to run") {
+		t.Errorf("body = %q", rec.Body.String())
+	}
+}
+
+func TestPageOffersRunAll(t *testing.T) {
+	h := newHarness(t, "## A\n\n```echo\nx\n```\n")
+	if !strings.Contains(h.get("/").Body.String(), `hx-post="/cells/run-all"`) {
+		t.Error("no Run all button")
+	}
+	// A notebook with no cells has nothing to run all of.
+	empty := newHarness(t, "just prose\n")
+	if strings.Contains(empty.get("/").Body.String(), "run-all") {
+		t.Error("Run all offered for a notebook with no cells")
+	}
+}

@@ -5,9 +5,10 @@
 > milestone list glosses over, and lists the spec questions each stage will force.
 > Not normative: the three specs govern. This document is disposable once M3 lands.
 
-Status: draft · **M0, M1 and M2 complete.** Only M3 (clinote v2) remains, and it is a
-consumer rather than kit work. Every spec question is resolved except §8.7, the priortool
-sidecar verification, which needs a sidecar-producing tool to matter.
+Status: draft · **M0–M3 complete**, with two parity gaps deliberately deferred (§6).
+Every spec question is resolved except §8.7, the priortool sidecar verification, which needs
+a sidecar-producing tool to matter. This document is now disposable per its own preamble;
+the specs govern.
 
 ---
 
@@ -301,7 +302,7 @@ Design notes:
   the moment anything runs. The file is the artifact; reading it is the honest way to
   know what it says.
 
-## 6. M3 — clinote v2
+## 6. M3 — clinote v2 — ✅ COMPLETE, with two gaps deferred
 
 First real consumer, and the test of whether the kit's boundaries are right.
 
@@ -312,6 +313,70 @@ First real consumer, and the test of whether the kit's boundaries are right.
   not open.
 - Fold any kit changes M3 forces back into the kit *before* a second tool starts
   (validation gate 4).
+
+### What M3 forced back into the kit
+
+The point of building a real consumer was to find these, and it did.
+
+- **`exec.Result.Truncated`.** An executor reading from a pty must bound memory before
+  the runtime sees a byte, and having dropped output only it knows. Without the field an
+  executor capping at exactly the durable cap would hand `run` a body it considered
+  complete, silently losing the fact that output was lost. `run` now ORs it with its own
+  cap.
+- **`doc.Cell.SetSource`.** Editing a cell's source is a core notebook operation and
+  fence-length safety is format knowledge, so it belongs in `doc`. It re-emits the whole
+  fence rather than only the body: a body containing a backtick run at least as long as
+  the fence would terminate it early and turn the rest of the cell into prose. Widening
+  is not silent repair — §10 permits rewriting the bytes a tool edited, and the fence is
+  what is being edited.
+- **Three `serve` routes** — cancel a run, edit a cell's source, run all cells. All three
+  are kit features every tool needs, and all three were missing only because the echo
+  executor never made their absence hurt.
+
+### What clinote v1 taught, and what inverted
+
+v1's runner is at `../clinote/internal/runner`. Carried over as-is, because each detail
+is load-bearing and none is obvious:
+
+- A rolling tail window for sentinel detection, kept separate from the captured body, and
+  reading that **continues past the cap**. Truncation must never hide the sentinel, or the
+  next cell reads the previous cell's marker and the session is permanently out of step.
+- `Close` deliberately not taking the session mutex. A command blocked on input leaves
+  Execute holding it, so a Close that waited would deadlock — and Close runs on the Ctrl-C
+  path. Closing the pty is what unblocks the stuck read.
+- `Interrupt` via `TIOCGPGRP` then `kill(-pgrp, SIGINT)`.
+
+Two of v1's responsibilities inverted, because the kit owns them now:
+
+- **v1 stripped ANSI in the runner.** notekit strips in the format layer, so the executor
+  must return **raw** output or live colour has nothing to render.
+- **v1 split stderr to a temp file** via a `2>` redirect. §7 requires shell stdout and
+  stderr combined and interleaved, and the format has no place for two streams — so the
+  redirect and the temp file both go away. Simpler, and what the spec asks for.
+
+One thing v1 did that v2 must not: run the shell **interactively**. An interactive shell
+runs a line editor that owns the terminal — zsh's ZLE re-enables echo after `stty -echo`
+and redraws a prompt before every command, and both land in the captured output. Only
+running it end to end showed this; dropping `-i` removes the prompt, the echo, and the
+line editor at their source. Nothing a notebook wants is lost, because state still carries
+between cells.
+
+### Parity: honest status
+
+Gate 3 is *functional* parity with v1, not file-level (harvest D8). Comparing v1's route
+surface, v2 now matches it except for two features, both deferred rather than forgotten:
+
+- **Add a cell** and **delete a block.** These change document *structure* rather than the
+  contents of an existing construct, which is a different splice shape from everything
+  built so far — and the format has no "append a cell" rule to follow, so it needs a
+  decision about where a new heading and fence go relative to surrounding prose. Worth
+  doing deliberately rather than by analogy.
+- A **web picker**. v2 has a CLI picker instead, which covers the same need for a
+  single-notebook tool.
+
+Everything else v1 offered is present: run, run-all, cancel, result rendering with live
+colour and sortable tables, prose editing with an unsaved indicator, source editing,
+auto-save, output cap with truncation, exit-status capture, embedded assets.
 
 ## 7. Testing strategy
 

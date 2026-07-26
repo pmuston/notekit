@@ -91,6 +91,17 @@ type CellRef struct {
 type Result struct {
 	Kind    string
 	Payload any
+
+	// Truncated reports that the executor bounded its own capture and dropped
+	// output. Package run ORs this with its own durable cap, so the `truncated`
+	// flag is accurate either way (§6).
+	//
+	// This exists because an executor reading from a pty or a cursor must bound
+	// memory before the runtime ever sees the bytes — and having dropped some, only
+	// it knows. Without this field an executor that capped at exactly the durable
+	// cap would produce a body the runtime considers complete, silently losing the
+	// fact that output was lost.
+	Truncated bool
 }
 
 // Error is a domain failure, which persists as an `error` block (format spec §7).

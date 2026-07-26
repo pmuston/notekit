@@ -1,6 +1,7 @@
 package serve
 
 import (
+	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -231,3 +232,116 @@ func (s *Server) flash(c echo.Context, status int, message string) error {
 
 // PollIntervalMS exposes the poll cadence, for a tool that wants to display it.
 func (s *Server) PollIntervalMS() string { return strconv.FormatInt(s.poll.Milliseconds(), 10) }
+
+// handleRunAll submits every cell the executor claims, in document order.
+//
+// Runs within a notebook are serialised by the scheduler, so submitting them all at once
+// is safe and they execute in order. Cells another executor claims are skipped rather
+// than erroring: a real notebook mixes languages.
+func (s *Server) handleRunAll(c echo.Context) error {
+	cells, err := s.sched.Cells(s.path)
+	if err != nil {
+		return s.flash(c, http.StatusInternalServerError, err.Error())
+	}
+
+	submitted, skipped := 0, 0
+	for i := range cells {
+		if _, err := s.sched.Submit(s.path, i); err != nil {
+			skipped++
+			continue
+		}
+		submitted++
+	}
+	if submitted == 0 {
+		return s.flash(c, http.StatusOK, "nothing to run")
+	}
+	// The page reloads so every cell shows its own polling fragment, rather than this
+	// handler trying to swap several targets at once.
+	c.Response().Header().Set("HX-Refresh", "true")
+	msg := fmt.Sprintf("running %d cells", submitted)
+	if skipped > 0 {
+		msg += fmt.Sprintf(" (%d skipped)", skipped)
+	}
+	return s.flash(c, http.StatusOK, msg)
+}
+
+// handleCancel cancels a run, which for a shell means interrupting the command.
+func (s *Server) handleCancel(c echo.Context) error {
+	id := run.ID(c.Param("id"))
+	if _, ok := s.sched.State(id); !ok {
+		return s.flash(c, http.StatusNotFound, "no such run: "+string(id))
+	}
+	if err := s.sched.Cancel(id); err != nil {
+		return s.flash(c, http.StatusConflict, err.Error())
+	}
+	// Report the current state rather than assuming: a run that finished a moment ago
+	// is not cancellable, and saying so is better than implying it was.
+	r, _ := s.sched.State(id)
+	if r.State.Terminal() && r.State != run.Cancelled {
+		return s.flash(c, http.StatusOK, "the run already finished")
+	}
+	return s.flash(c, http.StatusOK, "cancelling…")
+}
+
+// handleSourceGet returns a cell, rendered or as a source editor.
+func (s *Server) handleSourceGet(c echo.Context) error {
+	nb, src, err := s.notebook()
+	if err != nil {
+		return s.flash(c, http.StatusInternalServerError, err.Error())
+	}
+	cells := nb.Cells()
+	index, err := cellIndex(c, cells)
+	if err != nil {
+		return s.flash(c, http.StatusBadRequest, err.Error())
+	}
+	editing := c.QueryParam("edit") != ""
+	return s.html(c, http.StatusOK, "cell", s.buildCell(src, index, cells[index], editing))
+}
+
+// handleSourcePut saves an edited cell source.
+//
+// The cell is re-resolved from a fresh parse, and the whole source fence is rewritten so
+// fence-length safety still holds for the new body (doc.Cell.SetSource). A body
+// containing a long backtick run would otherwise terminate its own fence and silently
+// turn the rest of the cell into prose.
+func (s *Server) handleSourcePut(c echo.Context) error {
+	nb, _, err := s.notebook()
+	if err != nil {
+		return s.flash(c, http.StatusInternalServerError, err.Error())
+	}
+	cells := nb.Cells()
+	index, err := cellIndex(c, cells)
+	if err != nil {
+		return s.flash(c, http.StatusBadRequest, err.Error())
+	}
+
+	edit, err := cells[index].SetSource(c.FormValue("source"))
+	if err != nil {
+		return s.flash(c, http.StatusConflict, err.Error())
+	}
+	out, err := nb.Apply(edit)
+	if err != nil {
+		return s.flash(c, http.StatusConflict, err.Error())
+	}
+
+	// The edit must leave a notebook whose cell is still the same cell. Anything else
+	// — a heading swallowed, a fence broken — is not written.
+	after, err := doc.Parse(out)
+	if err != nil {
+		return s.flash(c, http.StatusConflict,
+			"that edit would make the notebook unreadable, so it was not saved")
+	}
+	if len(after.Cells()) != len(cells) {
+		return s.flash(c, http.StatusConflict,
+			"that edit would change how many cells the notebook has, so it was not saved")
+	}
+	if err := s.save(out); err != nil {
+		return s.flash(c, http.StatusInternalServerError, err.Error())
+	}
+
+	nb2, src2, err := s.notebook()
+	if err != nil {
+		return s.flash(c, http.StatusInternalServerError, err.Error())
+	}
+	return s.html(c, http.StatusOK, "cell", s.buildCell(src2, index, nb2.Cells()[index], false))
+}

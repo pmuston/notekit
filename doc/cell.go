@@ -85,7 +85,8 @@ type Cell struct {
 	ResultPos Span
 	Results   []Result
 
-	src []byte
+	src     []byte
+	fenceCh byte
 }
 
 // HasMetaError reports whether the source fence's info string failed to parse.
@@ -161,6 +162,7 @@ func buildCell(src []byte, section []block) *Cell {
 		Closed:      fence.closed,
 		Slug:        Slug(head.text),
 		src:         src,
+		fenceCh:     fence.fenceCh,
 	}
 	c.Meta, c.MetaErr = meta.Parse(fence.info)
 	if c.Meta != nil {

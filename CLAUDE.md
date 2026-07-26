@@ -4,10 +4,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Repository state
 
-Go module `github.com/pmuston/notekit` on Go 1.25.4. **The whole kit is built** — M0, M1
-and M2: `meta`, `doc`, `exec`, `kind`, `run`, `serve`, the conformance corpus, and three
-binaries (`notefmt`, `noterun`, `noteserve`). M3 is clinote v2, a *consumer* rather than
-kit work. The specs are the authority for everything that gets built:
+Go module `github.com/pmuston/notekit` on Go 1.25.4. **M0–M3 are complete**: the kit
+(`meta`, `doc`, `exec`, `kind`, `run`, `serve`), the conformance corpus, and four binaries
+— `notefmt` (linter), `noterun` and `noteserve` (demos), and `clinote` (the first real
+consumer: a pty shell executor plus a `main`). Two v1 parity features are deliberately
+deferred; see the implementation plan §6. The specs are the authority for everything that
+gets built:
 
 | File | Owns |
 |---|---|
@@ -114,6 +116,7 @@ notekit/
   cmd/notefmt/    the M0 linter: check, list, sidecars
   cmd/noterun/    the M1 demo: the full async loop, no server
   cmd/noteserve/  the M2 demo: the full HTMX loop in a browser
+  cmd/clinote/    clinote v2 (M3): shell executor + main; ALL pty knowledge lives here
   doc/            document model: parse, cells, slugs, byte-range splice, result writers
   meta/           info-string metadata grammar: parse + canonical serialise
   run/            run scheduler: async execution, capture limits, splice, atomic save
@@ -228,9 +231,34 @@ Further invariants worth internalising before touching `run` or `exec`:
 - Executors declare whether they emit `csv` or `jsonl`; the kit does **not**
   transcode between them.
 
+## Writing an executor
+
+`cmd/clinote` is the reference. Two rules bind every executor, and both are easy to get
+wrong because v1 did the opposite:
+
+- **Return raw output.** ANSI stripping is the *format* layer's job (`doc.StripANSI`, via
+  `run`). An executor that strips destroys the colour the browser renders.
+- **Bound your own capture, and say so.** Reading a pty into memory unbounded is how a
+  runaway cell kills the process; `exec.Capture` helps. Set `exec.Result.Truncated` when
+  you drop bytes — `run` cannot know otherwise, and would treat a short body as complete.
+
+Shell-specific lessons worth not relearning:
+
+- **Do not run the shell interactively.** An interactive shell's line editor owns the
+  terminal: zsh's ZLE re-enables echo after `stty -echo` and redraws a prompt before every
+  command, and both land in the captured output. Dropping `-i` removes prompt, echo and
+  line editor at once; state still carries between cells.
+- **Keep reading past the output cap.** The sentinel arrives *after* the output, so a read
+  that stops at the cap never sees it and the session desynchronises permanently.
+- **`Close` must not take the session mutex.** A hung command holds it, and `Close` runs
+  on the Ctrl-C path; closing the pty is what unblocks the stuck read.
+- **Guard the pty handle against use-after-close.** The race detector caught an interrupt
+  goroutine reading `pty.Fd()` after `Close` — a reused descriptor would have sent SIGINT
+  to an unrelated process group.
+
 ## Milestones
 
-Build in this order — each is gated on the previous:
+All complete. Build order, each gated on the previous:
 
 - **M0** — `doc` + `meta`: parse, slugs, splice, round-trip green against the full
   conformance corpus. No execution. Ships `notefmt` (parse, list cells, round-trip
@@ -240,7 +268,8 @@ Build in this order — each is gated on the previous:
 - **M2** — `serve`: full HTMX loop — run, poll at 500 ms with spinner, sortable
   tables, inline prose edit, auto-save.
 - **M3** — clinote v2 as first real consumer; fold back any kit changes it forces
-  before starting a second tool.
+  before starting a second tool. It forced three: `exec.Result.Truncated`,
+  `doc.Cell.SetSource`, and three `serve` routes (cancel, source edit, run-all).
 
 ## Testing
 

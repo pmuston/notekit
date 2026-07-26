@@ -417,3 +417,145 @@ func TestApplyTwoInsertionsAtSamePosition(t *testing.T) {
 		t.Errorf("got %q, want %q", out, want)
 	}
 }
+
+func TestSetSource(t *testing.T) {
+	tests := []struct {
+		name string
+		body string
+		text string
+		want string
+	}{
+		{
+			name: "plain replacement keeps the info string",
+			body: "## H\n\n```sh {format=csv, id=aaaa2345}\nold\n```\n",
+			text: "new\n",
+			want: "## H\n\n```sh {format=csv, id=aaaa2345}\nnew\n```\n",
+		},
+		{
+			// Fence-length safety applies to a source fence too: without widening,
+			// the body would terminate its own fence.
+			name: "widens for a three-backtick run",
+			body: "## H\n\n```sh\nold\n```\n",
+			text: "printf '```'\n",
+			want: "## H\n\n````sh\nprintf '```'\n````\n",
+		},
+		{
+			name: "widens for a five-backtick run",
+			body: "## H\n\n```sh\nold\n```\n",
+			text: "echo '`````'\n",
+			want: "## H\n\n``````sh\necho '`````'\n``````\n",
+		},
+		{
+			// A tilde fence is bounded by tilde runs, not backtick runs.
+			name: "tilde fence preserved and measured on tildes",
+			body: "## H\n\n~~~sh\nold\n~~~\n",
+			text: "echo '~~~~'\n",
+			want: "## H\n\n~~~~~sh\necho '~~~~'\n~~~~~\n",
+		},
+		{
+			name: "backticks in a tilde fence do not widen it",
+			body: "## H\n\n~~~sh\nold\n~~~\n",
+			text: "echo '```'\n",
+			want: "## H\n\n~~~sh\necho '```'\n~~~\n",
+		},
+		{
+			name: "missing trailing newline is added",
+			body: "## H\n\n```sh\nold\n```\n",
+			text: "no newline",
+			want: "## H\n\n```sh\nno newline\n```\n",
+		},
+		{
+			name: "empty body",
+			body: "## H\n\n```sh\nold\n```\n",
+			text: "",
+			want: "## H\n\n```sh\n```\n",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			n := mustParse(t, front+tt.body)
+			edit, err := n.Cells()[0].SetSource(tt.text)
+			if err != nil {
+				t.Fatalf("SetSource: %v", err)
+			}
+			out, err := n.Apply(edit)
+			if err != nil {
+				t.Fatalf("Apply: %v", err)
+			}
+			if got, want := string(out), front+tt.want; got != want {
+				t.Fatalf("got %q, want %q", got, want)
+			}
+
+			// The result must re-parse as one cell whose body is what was asked for.
+			n2 := mustParse(t, string(out))
+			if len(n2.Cells()) != 1 {
+				t.Fatalf("got %d cells, want 1 — the fence broke", len(n2.Cells()))
+			}
+			wantBody := tt.text
+			if wantBody != "" && !strings.HasSuffix(wantBody, "\n") {
+				wantBody += "\n"
+			}
+			if got := n2.Cells()[0].SourceText(); got != wantBody {
+				t.Errorf("SourceText() = %q, want %q", got, wantBody)
+			}
+			// Results are outside the source fence, so a source edit leaves the
+			// info string — and any id — exactly as it was.
+			if n2.Cells()[0].Info != n.Cells()[0].Info {
+				t.Errorf("info string changed: %q -> %q", n.Cells()[0].Info, n2.Cells()[0].Info)
+			}
+		})
+	}
+}
+
+func TestSetSourceLeavesResultsAlone(t *testing.T) {
+	src := front + "## H\n\n```sh\nold\n```\n\n```output {run=\"x\"}\nkept\n```\n\nprose\n"
+	n := mustParse(t, src)
+	edit, err := n.Cells()[0].SetSource("new\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := n.Apply(edit)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := string(out)
+	if !strings.Contains(got, "```output {run=\"x\"}\nkept\n```") {
+		t.Errorf("the result was disturbed:\n%s", got)
+	}
+	if !strings.Contains(got, "\nprose\n") {
+		t.Errorf("prose was disturbed:\n%s", got)
+	}
+	assertUntouchedOutside(t, n.Bytes(), out,
+		n.Cells()[0].Source.Start, n.Cells()[0].Source.End)
+}
+
+func TestSetSourceRefusesUnclosedFence(t *testing.T) {
+	// Closing it on the author's behalf would be the silent repair §10 forbids, for the
+	// same reason SetResult refuses.
+	n := mustParse(t, front+"## H\n\n```sh\nno close\n")
+	if _, err := n.Cells()[0].SetSource("new\n"); err == nil {
+		t.Fatal("SetSource = nil error, want refusal for an unclosed fence")
+	}
+}
+
+func TestRunLen(t *testing.T) {
+	tests := []struct {
+		s    string
+		ch   byte
+		want int
+	}{
+		{"", '`', 0},
+		{"none", '`', 0},
+		{"`", '`', 1},
+		{"a``b```c", '`', 3},
+		{"```\n`````\n", '`', 5},
+		{"~~~~", '~', 4},
+		{"```", '~', 0},
+	}
+	for _, tt := range tests {
+		if got := runLen(tt.s, tt.ch); got != tt.want {
+			t.Errorf("runLen(%q, %q) = %d, want %d", tt.s, tt.ch, got, tt.want)
+		}
+	}
+}

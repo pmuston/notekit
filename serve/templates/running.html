@@ -6,5 +6,8 @@
      hx-swap="innerHTML">
   <span class="nk-spinner" role="status" aria-label="running"></span>
   {{.State}}…
+  <button class="nk-btn" type="button"
+          hx-post="{{.Base}}/runs/{{.RunID}}/cancel"
+          hx-target="this" hx-swap="none">Cancel</button>
 </div>
 {{end}}

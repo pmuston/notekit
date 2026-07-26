@@ -15,7 +15,26 @@
 
   {{template "prose" .ProseBefore}}
 
-  <pre class="nk-source">{{.Source}}</pre>
+  {{if .Editing}}
+  <form hx-put="{{.Base}}/cells/{{.Index}}/source"
+        hx-target="#cell-{{.Index}}" hx-swap="outerHTML">
+    <textarea class="nk-prose-edit nk-source-edit" name="source" aria-label="cell source">{{.Source}}</textarea>
+    <div class="nk-edit-bar">
+      <button class="nk-btn" type="submit">Save</button>
+      <button class="nk-btn" type="button"
+              hx-get="{{.Base}}/cells/{{.Index}}/source"
+              hx-target="#cell-{{.Index}}" hx-swap="outerHTML">Cancel</button>
+      <span class="nk-dirty" data-dirty="false">unsaved changes</span>
+    </div>
+  </form>
+  {{else}}
+  <pre class="nk-source" role="button" tabindex="0"
+       aria-label="edit cell source"
+       hx-get="{{.Base}}/cells/{{.Index}}/source?edit=1"
+       hx-trigger="click, keyup[key=='Enter']"
+       hx-target="#cell-{{.Index}}" hx-swap="outerHTML"
+       title="click or press Enter to edit">{{.Source}}</pre>
+  {{end}}
 
   <div id="result-{{.Index}}" class="nk-result">{{template "result" .Result}}</div>
 
