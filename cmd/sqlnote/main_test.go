@@ -41,38 +41,6 @@ func inDir(t *testing.T, dir string, f func()) {
 	f()
 }
 
-func TestFindNotebooksAndPicker(t *testing.T) {
-	dir := t.TempDir()
-	writeFile(t, dir, "one.md", front+"## A\n\n```sql\nSELECT 1\n```\n")
-	writeFile(t, dir, "plain.md", "# not a notebook\n")
-
-	found, err := findNotebooks(dir)
-	if err != nil {
-		t.Fatalf("findNotebooks: %v", err)
-	}
-	if len(found) != 1 || filepath.Base(found[0]) != "one.md" {
-		t.Errorf("found = %v", found)
-	}
-
-	inDir(t, dir, func() {
-		got, err := resolveNotebook("")
-		if err != nil {
-			t.Fatalf("resolveNotebook: %v", err)
-		}
-		if filepath.Base(got) != "one.md" {
-			t.Errorf("got %q", got)
-		}
-	})
-
-	// Several candidates are named rather than guessed between.
-	writeFile(t, dir, "two.md", front+"## B\n\n```sql\nSELECT 2\n```\n")
-	inDir(t, dir, func() {
-		if _, err := resolveNotebook(""); err == nil {
-			t.Error("want an error naming the candidates")
-		}
-	})
-}
-
 // TestDescribeDB checks the startup line says which mode the notebook is in. Saying "in
 // memory" out loud matters: a self-contained notebook discards its data on exit, and a
 // user should not discover that afterwards.

@@ -32,9 +32,6 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"path/filepath"
-	"sort"
-	"strings"
 	"time"
 
 	"github.com/pmuston/notekit/doc"
@@ -103,7 +100,7 @@ func runMain(args []string, stdout, stderr io.Writer) int {
 	}
 
 	if *list {
-		found, err := findNotebooks(".")
+		found, err := notetool.FindNotebooks(".")
 		if err != nil {
 			fmt.Fprintf(stderr, "sqlnote: %v\n", err)
 			return exitUsage
@@ -137,7 +134,7 @@ func runMain(args []string, stdout, stderr io.Writer) int {
 		}
 		fmt.Fprintf(stdout, "sqlnote: created %s\n", path)
 	} else {
-		path, err = resolveNotebook(fs.Arg(0))
+		path, err = notetool.Resolve(fs.Arg(0), ".")
 		if err != nil {
 			fmt.Fprintf(stderr, "sqlnote: %v\n", err)
 			return exitUsage
@@ -225,67 +222,6 @@ func describeDB(path string) string {
 		return "db " + db
 	}
 	return "in memory, self-contained"
-}
-
-// resolveNotebook returns the notebook to serve, using the picker when no path is given.
-//
-// Deliberately not interactive: with one candidate the answer is obvious, and with several
-// the useful thing is to name them rather than open the wrong one.
-func resolveNotebook(arg string) (string, error) {
-	if arg != "" {
-		src, err := os.ReadFile(arg)
-		if err != nil {
-			return "", err
-		}
-		if _, err := doc.Parse(src); err != nil {
-			return "", fmt.Errorf("%s: %w", arg, err)
-		}
-		return arg, nil
-	}
-
-	found, err := findNotebooks(".")
-	if err != nil {
-		return "", err
-	}
-	switch len(found) {
-	case 0:
-		return "", errors.New("no notekit notebooks in the current directory; " +
-			"name one, or create a file with `notekit: 1` front matter")
-	case 1:
-		return found[0], nil
-	default:
-		return "", fmt.Errorf("several notebooks here — name one of:\n  %s",
-			strings.Join(found, "\n  "))
-	}
-}
-
-// findNotebooks lists the notekit notebooks in a directory, in name order.
-//
-// A file is a candidate only if it actually parses: refusing to guess is the format's
-// posture (§2), and offering a file that turns out not to be a notebook would move the
-// error somewhere worse.
-func findNotebooks(dir string) ([]string, error) {
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return nil, err
-	}
-	var found []string
-	for _, e := range entries {
-		if e.IsDir() || !strings.HasSuffix(e.Name(), ".md") {
-			continue
-		}
-		p := filepath.Join(dir, e.Name())
-		src, err := os.ReadFile(p)
-		if err != nil {
-			continue
-		}
-		if _, err := doc.Parse(src); err != nil {
-			continue
-		}
-		found = append(found, p)
-	}
-	sort.Strings(found)
-	return found, nil
 }
 
 // starterCell is the cell `new` writes: one cell of the tool's own language and nothing

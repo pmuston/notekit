@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"unicode"
 	"unicode/utf8"
@@ -239,4 +240,85 @@ func quoteList(langs []string) string {
 		return quoted[0]
 	}
 	return strings.Join(quoted[:len(quoted)-1], ", ") + " and " + quoted[len(quoted)-1]
+}
+
+// FindNotebooks lists the notekit notebooks in a directory, in name order.
+//
+// A file is a candidate only if it actually parses. Refusing to guess is the format's
+// posture (§2), and offering a file that turns out not to be a notebook would only move the
+// error somewhere worse — to the moment the user picked it.
+func FindNotebooks(dir string) ([]string, error) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil, err
+	}
+	var found []string
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".md") {
+			continue
+		}
+		p := filepath.Join(dir, e.Name())
+		if parseable(p) != nil {
+			continue
+		}
+		found = append(found, p)
+	}
+	sort.Strings(found)
+	return found, nil
+}
+
+// Resolve returns the notebook to open: arg when given, otherwise the one candidate in dir.
+//
+// The picker is deliberately not interactive. With exactly one candidate the answer is
+// obvious, and with several the useful thing is to name them and let the user choose rather
+// than guess and open the wrong notebook.
+//
+// dir is a parameter rather than always ".", so this can be tested without chdir — a
+// process-global that no test should have to reach for, and that stops tests running in
+// parallel. Callers pass ".".
+func Resolve(arg, dir string) (string, error) {
+	if arg != "" {
+		// A named file that is not a notebook is refused with the reason, rather than
+		// silently falling back to the picker and opening something else.
+		if err := parseable(arg); err != nil {
+			return "", err
+		}
+		return arg, nil
+	}
+
+	found, err := FindNotebooks(dir)
+	if err != nil {
+		return "", err
+	}
+	switch len(found) {
+	case 0:
+		return "", fmt.Errorf("no notekit notebooks in %s; "+
+			"name one, or create a file with `notekit: 1` front matter", describeDir(dir))
+	case 1:
+		return found[0], nil
+	default:
+		return "", fmt.Errorf("several notebooks here — name one of:\n  %s",
+			strings.Join(found, "\n  "))
+	}
+}
+
+// describeDir names a directory the way a message should read.
+func describeDir(dir string) string {
+	if dir == "." || dir == "" {
+		return "the current directory"
+	}
+	return dir
+}
+
+// parseable reports why a path is not a notebook this kit will open, in terms the user can
+// act on, or nil when it is one.
+func parseable(path string) error {
+	src, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	if _, err := doc.Parse(src); err != nil {
+		return fmt.Errorf("%s: %w", path, err)
+	}
+	return nil
 }

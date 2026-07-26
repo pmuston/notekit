@@ -375,3 +375,139 @@ func TestCreateWritesTheAdvisoryKey(t *testing.T) {
 		t.Errorf("a freshly created notebook must not warn: %s", warn)
 	}
 }
+
+// --- the notebook picker ---------------------------------------------------------------
+
+const frontMatter = "---\nnotekit: 1\n---\n\n"
+
+func write(t *testing.T, dir, name, body string) string {
+	t.Helper()
+	p := filepath.Join(dir, name)
+	if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return p
+}
+
+func TestFindNotebooks(t *testing.T) {
+	dir := t.TempDir()
+	write(t, dir, "one.md", frontMatter+"## A\n\n```sh\necho x\n```\n")
+	write(t, dir, "two.md", "---\nnotekit: 1\n---\n\nprose\n")
+	// Not candidates: no front matter, a version this build does not define, not
+	// markdown, and a directory that merely ends in .md.
+	write(t, dir, "plain.md", "# Just markdown\n")
+	write(t, dir, "future.md", "---\nnotekit: 2\n---\n")
+	write(t, dir, "notes.txt", frontMatter+"## A\n\n```sh\nx\n```\n")
+	if err := os.Mkdir(filepath.Join(dir, "sub.md"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	found, err := FindNotebooks(dir)
+	if err != nil {
+		t.Fatalf("FindNotebooks: %v", err)
+	}
+	var names []string
+	for _, p := range found {
+		names = append(names, filepath.Base(p))
+	}
+	want := []string{"one.md", "two.md"}
+	if len(names) != len(want) {
+		t.Fatalf("found %v, want %v", names, want)
+	}
+	for i := range want {
+		if names[i] != want[i] {
+			t.Errorf("found[%d] = %q, want %q", i, names[i], want[i])
+		}
+	}
+}
+
+func TestFindNotebooksMissingDir(t *testing.T) {
+	if _, err := FindNotebooks(filepath.Join(t.TempDir(), "nope")); err == nil {
+		t.Error("want an error")
+	}
+}
+
+// TestResolvePicker covers the no-argument path. The picker is deliberately not
+// interactive: with one candidate the answer is obvious, and with several the useful thing
+// is to name them rather than guess.
+func TestResolvePicker(t *testing.T) {
+	t.Run("exactly one is chosen", func(t *testing.T) {
+		dir := t.TempDir()
+		write(t, dir, "only.md", frontMatter+"## A\n\n```sh\nx\n```\n")
+		got, err := Resolve("", dir)
+		if err != nil {
+			t.Fatalf("Resolve: %v", err)
+		}
+		if filepath.Base(got) != "only.md" {
+			t.Errorf("got %q, want only.md", got)
+		}
+	})
+
+	t.Run("several are listed rather than guessed", func(t *testing.T) {
+		dir := t.TempDir()
+		write(t, dir, "a.md", frontMatter+"## A\n\n```sh\nx\n```\n")
+		write(t, dir, "b.md", frontMatter+"## B\n\n```sh\nx\n```\n")
+		_, err := Resolve("", dir)
+		if err == nil {
+			t.Fatal("want an error naming the candidates")
+		}
+		for _, want := range []string{"a.md", "b.md"} {
+			if !strings.Contains(err.Error(), want) {
+				t.Errorf("err = %v, want it to name %q", err, want)
+			}
+		}
+	})
+
+	t.Run("none explains what to do", func(t *testing.T) {
+		dir := t.TempDir()
+		write(t, dir, "plain.md", "# not a notebook\n")
+		_, err := Resolve("", dir)
+		if err == nil {
+			t.Fatal("want an error")
+		}
+		if !strings.Contains(err.Error(), "notekit: 1") {
+			t.Errorf("err = %v, want it to say how to make one", err)
+		}
+	})
+
+	// The message has to read correctly for both the caller's "." and a real path, since
+	// the directory is a parameter only so tests need not chdir.
+	t.Run("names the directory it looked in", func(t *testing.T) {
+		empty := t.TempDir()
+		err := resolveErr(t, "", empty)
+		if !strings.Contains(err.Error(), empty) {
+			t.Errorf("err = %v, want it to name %q", err, empty)
+		}
+		if err := resolveErr(t, "", "."); !strings.Contains(err.Error(), "current directory") {
+			// "." is what every caller passes, and "no notebooks in ." reads badly.
+			t.Errorf("err = %v, want it to say \"the current directory\"", err)
+		}
+	})
+}
+
+func TestResolveExplicitPath(t *testing.T) {
+	dir := t.TempDir()
+	good := write(t, dir, "good.md", frontMatter+"## A\n\n```sh\nx\n```\n")
+	bad := write(t, dir, "bad.md", "# not a notebook\n")
+
+	if got, err := Resolve(good, dir); err != nil || got != good {
+		t.Errorf("Resolve(%q) = %q, %v", good, got, err)
+	}
+	// A named file that is not a notebook is refused with the reason, rather than silently
+	// falling back to the picker and opening something else.
+	if err := resolveErr(t, bad, dir); !strings.Contains(err.Error(), "not a notekit notebook") {
+		t.Errorf("err = %v", err)
+	}
+	if _, err := Resolve(filepath.Join(dir, "nope.md"), dir); err == nil {
+		t.Error("want an error for a missing file")
+	}
+}
+
+func resolveErr(t *testing.T, arg, dir string) error {
+	t.Helper()
+	_, err := Resolve(arg, dir)
+	if err == nil {
+		t.Fatalf("Resolve(%q, %q) = nil error", arg, dir)
+	}
+	return err
+}

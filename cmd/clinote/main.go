@@ -26,8 +26,6 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"sort"
-	"strings"
 	"time"
 
 	"github.com/pmuston/notekit/doc"
@@ -94,7 +92,7 @@ func runMain(args []string, stdout, stderr io.Writer) int {
 	}
 
 	if *list {
-		found, err := findNotebooks(".")
+		found, err := notetool.FindNotebooks(".")
 		if err != nil {
 			fmt.Fprintf(stderr, "clinote: %v\n", err)
 			return exitUsage
@@ -128,7 +126,7 @@ func runMain(args []string, stdout, stderr io.Writer) int {
 		}
 		fmt.Fprintf(stdout, "clinote: created %s\n", path)
 	} else {
-		path, err = resolveNotebook(fs.Arg(0))
+		path, err = notetool.Resolve(fs.Arg(0), ".")
 		if err != nil {
 			fmt.Fprintf(stderr, "clinote: %v\n", err)
 			return exitUsage
@@ -210,76 +208,6 @@ func defaultShell() string {
 		return base
 	}
 	return "bash"
-}
-
-// resolveNotebook returns the notebook to serve, using the picker when no path is given.
-//
-// The picker is deliberately not interactive: with exactly one candidate the answer is
-// obvious, and with several the useful thing is to name them and let the user choose,
-// rather than guess and open the wrong notebook.
-func resolveNotebook(arg string) (string, error) {
-	if arg != "" {
-		if err := checkNotebook(arg); err != nil {
-			return "", err
-		}
-		return arg, nil
-	}
-
-	found, err := findNotebooks(".")
-	if err != nil {
-		return "", err
-	}
-	switch len(found) {
-	case 0:
-		return "", errors.New("no notekit notebooks in the current directory; " +
-			"name one, or create a file with `notekit: 1` front matter")
-	case 1:
-		return found[0], nil
-	default:
-		return "", fmt.Errorf("several notebooks here — name one of:\n  %s",
-			strings.Join(found, "\n  "))
-	}
-}
-
-// checkNotebook reports why a path cannot be served, in the terms the user can act on.
-func checkNotebook(path string) error {
-	src, err := os.ReadFile(path)
-	if err != nil {
-		return err
-	}
-	if _, err := doc.Parse(src); err != nil {
-		return fmt.Errorf("%s: %w", path, err)
-	}
-	return nil
-}
-
-// findNotebooks lists the notekit notebooks in a directory, in name order.
-//
-// A file is a candidate only if it actually parses: refusing to guess is the format's
-// posture (§2), and offering a file that turns out not to be a notebook would move the
-// error to a worse place.
-func findNotebooks(dir string) ([]string, error) {
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return nil, err
-	}
-	var found []string
-	for _, e := range entries {
-		if e.IsDir() || !strings.HasSuffix(e.Name(), ".md") {
-			continue
-		}
-		p := filepath.Join(dir, e.Name())
-		src, err := os.ReadFile(p)
-		if err != nil {
-			continue
-		}
-		if _, err := doc.Parse(src); err != nil {
-			continue
-		}
-		found = append(found, p)
-	}
-	sort.Strings(found)
-	return found, nil
 }
 
 // filepathDir is a tiny indirection so shell.go need not import path/filepath.
