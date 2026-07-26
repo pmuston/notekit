@@ -38,6 +38,7 @@ import (
 	"time"
 
 	"github.com/pmuston/notekit/doc"
+	"github.com/pmuston/notekit/internal/notetool"
 	"github.com/pmuston/notekit/run"
 	"github.com/pmuston/notekit/serve"
 )
@@ -130,7 +131,7 @@ func runMain(args []string, stdout, stderr io.Writer) int {
 			return exitUsage
 		}
 		path = fs.Arg(0)
-		if err := createNotebook(path, ex.Lang()); err != nil {
+		if err := notetool.Create(path, starterCell(ex.Lang())); err != nil {
 			fmt.Fprintf(stderr, "sqlnote: %v\n", err)
 			return exitUsage
 		}
@@ -141,7 +142,7 @@ func runMain(args []string, stdout, stderr io.Writer) int {
 			fmt.Fprintf(stderr, "sqlnote: %v\n", err)
 			return exitUsage
 		}
-		if err := checkEngine(path, ex.Lang()); err != nil {
+		if err := notetool.CheckEngine(path, "sqlnote", ex.Lang()); err != nil {
 			fmt.Fprintf(stderr, "sqlnote: %v\n", err)
 			return exitUsage
 		}
@@ -296,97 +297,4 @@ func starterCell(lang string) doc.NewCell {
 		Lang:    lang,
 		Body:    "SELECT 'hello from sqlnote' AS greeting;\n",
 	}
-}
-
-// createNotebook writes a new notebook at path.
-//
-// An existing file is never touched. The file is the artifact, so overwriting one on a
-// mistyped path would destroy work no tool can recover.
-func createNotebook(path, lang string) error {
-	if _, err := os.Stat(path); err == nil {
-		return fmt.Errorf("%s already exists", path)
-	} else if !errors.Is(err, os.ErrNotExist) {
-		return err
-	}
-	src, err := doc.Scaffold(titleFromPath(path), starterCell(lang))
-	if err != nil {
-		return err
-	}
-	// No sqlnote-db key: a notebook is self-contained until someone binds it (harvest R2),
-	// and in-memory is the mode that always works without asking where to put a file.
-	return doc.WriteFileAtomic(path, src, 0o644)
-}
-
-// titleFromPath derives a readable title from a filename, so `sqlnote new parts-list.md`
-// opens as "Parts list" rather than "parts-list".
-func titleFromPath(path string) string {
-	base := strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))
-	base = strings.NewReplacer("-", " ", "_", " ").Replace(base)
-	base = strings.Join(strings.Fields(base), " ")
-	if base == "" {
-		return ""
-	}
-	return strings.ToUpper(base[:1]) + base[1:]
-}
-
-// checkEngine refuses a notebook this binary cannot run, before the server starts.
-//
-// The cells already say which engine a notebook wants, so there is nothing to look up and
-// nothing that can disagree (§2.1). Without this the mismatch surfaced only when someone
-// clicked Run, once per cell.
-//
-// A notebook with no cells is allowed, and so is one where only *some* cells match: package
-// run checks each cell as it runs it, and refusing the whole file would be stricter than
-// the format.
-func checkEngine(path, lang string) error {
-	src, err := os.ReadFile(path)
-	if err != nil {
-		return err
-	}
-	nb, err := doc.Parse(src)
-	if err != nil {
-		return fmt.Errorf("%s: %w", path, err)
-	}
-	langs := nb.Langs()
-	if len(langs) == 0 {
-		return nil
-	}
-	for _, l := range langs {
-		if l == lang {
-			return nil
-		}
-	}
-	msg := fmt.Sprintf("%s has %s cells, and sqlnote runs %q cells",
-		path, quoteList(langs), lang)
-	if hint := toolFor(langs); hint != "" {
-		msg += "\n  try: " + hint + " " + path
-	}
-	return errors.New(msg)
-}
-
-// toolFor names the sibling tool for a set of languages, so the error can point somewhere
-// instead of only saying no.
-//
-// Deliberately a short list rather than a registry: executors are compiled in, so a tool
-// can only know about siblings that existed when it was built.
-func toolFor(langs []string) string {
-	for _, l := range langs {
-		switch l {
-		case "sh", "bash", "zsh":
-			return "clinote"
-		}
-	}
-	return ""
-}
-
-// quoteList renders a language list for an error message.
-func quoteList(langs []string) string {
-	quoted := make([]string, len(langs))
-	for i, l := range langs {
-		quoted[i] = fmt.Sprintf("%q", l)
-	}
-	if len(quoted) == 1 {
-		return quoted[0]
-	}
-	return strings.Join(quoted[:len(quoted)-1], ", ") + " and " + quoted[len(quoted)-1]
 }

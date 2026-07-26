@@ -132,6 +132,9 @@ notekit/
   exec/           executor and session contracts; exec/echoexec is the reference impl
   kind/           result-kind registry: durable writers now, live renderers at M2
   serve/          Echo handlers + HTMX templates + go:embed assets
+  internal/notetool/  what the notebook binaries must agree on: the tool/lang registry,
+                  the engine check, notebook creation. NOT kit — tool names are neither
+                  format nor runtime
 ```
 
 Three architectural decisions drive almost every implementation choice:
@@ -266,6 +269,13 @@ Further invariants worth internalising before touching `run` or `exec`:
   can run (naming the sibling tool, not just saying no), and `new` **must** write a
   starter cell, because a cell-less notebook is the one case derivation cannot answer.
   If two engines ever share a tag, declare the *language*, not the app.
+- **`internal/notetool.Tools` is the only place that maps a language to a binary**, and it
+  is exact. A hand-maintained copy had already drifted — sqlnote suggested clinote for
+  `bash` cells, which clinote refuses too, since `run` compares tags for equality. A
+  suggestion that sends someone to a second refusal is worse than none, so `Sibling`
+  returns "" for a tag no tool claims. The registry cannot be checked beside itself (a
+  main package is not importable), so each tool asserts its own entry in
+  `TestToolsListsThisTool`; two tools claiming one tag is a test failure, not a tie-break.
 
 ## Writing an executor
 

@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/pmuston/notekit/doc"
+	"github.com/pmuston/notekit/internal/notetool"
 )
 
 const front = "---\nnotekit: 1\ntitle: Shell Notebook\n---\n\n"
@@ -388,7 +389,7 @@ func TestNewWritesARunnableStarterCell(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "parts-list.md")
 
-	if err := createNotebook(path, "sh"); err != nil {
+	if err := notetool.Create(path, starterCell("sh")); err != nil {
 		t.Fatalf("createNotebook: %v", err)
 	}
 
@@ -417,7 +418,7 @@ func TestNewWritesARunnableStarterCell(t *testing.T) {
 		t.Error("a new cell must carry no result (§10 f)")
 	}
 	// And the notebook it just wrote is one this binary agrees to open.
-	if err := checkEngine(path, "sh"); err != nil {
+	if err := notetool.CheckEngine(path, "clinote", "sh"); err != nil {
 		t.Errorf("checkEngine rejected a notebook this tool just created: %v", err)
 	}
 }
@@ -430,7 +431,7 @@ func TestNewRefusesToOverwrite(t *testing.T) {
 		t.Fatal(err)
 	}
 	// The file is the artifact, so a mistyped path must never destroy one.
-	if err := createNotebook(path, "sh"); err == nil {
+	if err := notetool.Create(path, starterCell("sh")); err == nil {
 		t.Fatal("want an error for an existing file")
 	}
 	got, err := os.ReadFile(path)
@@ -449,7 +450,7 @@ func TestCheckEngineRefusesAForeignNotebookAndNamesTheTool(t *testing.T) {
 	if err := os.WriteFile(path, []byte(src), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	err := checkEngine(path, "sh")
+	err := notetool.CheckEngine(path, "clinote", "sh")
 	if err == nil {
 		t.Fatal("want an error: every cell is sql and this tool runs sh")
 	}
@@ -471,7 +472,7 @@ func TestCheckEngineAllowsCellLessAndPartialMatches(t *testing.T) {
 	if err := os.WriteFile(bare, []byte("---\nnotekit: 1\n---\n\njust prose\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := checkEngine(bare, "sh"); err != nil {
+	if err := notetool.CheckEngine(bare, "clinote", "sh"); err != nil {
 		t.Errorf("a cell-less notebook must be allowed: %v", err)
 	}
 
@@ -482,7 +483,7 @@ func TestCheckEngineAllowsCellLessAndPartialMatches(t *testing.T) {
 	if err := os.WriteFile(mixed, []byte(src), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := checkEngine(mixed, "sh"); err != nil {
+	if err := notetool.CheckEngine(mixed, "clinote", "sh"); err != nil {
 		t.Errorf("a notebook with one runnable cell must be allowed: %v", err)
 	}
 }
@@ -497,5 +498,28 @@ func TestNewMustComeFirst(t *testing.T) {
 	}
 	if !strings.Contains(errOut.String(), "must come first") {
 		t.Errorf("stderr should explain the ordering, got: %q", errOut.String())
+	}
+}
+
+// TestToolsListsThisTool keeps internal/notetool's registry honest. It has to live here
+// rather than beside the registry, because a main package cannot be imported — and it is
+// the registry's only guard: a wrong Lang there would quietly send someone to a tool that
+// refuses the file in turn, which is exactly the bug that prompted the extraction (sqlnote
+// used to suggest clinote for `bash` cells, which clinote also refuses).
+func TestToolsListsThisTool(t *testing.T) {
+	var found bool
+	for _, tool := range notetool.Tools {
+		if tool.Name != "clinote" {
+			continue
+		}
+		found = true
+		if tool.Lang != Lang {
+			t.Errorf("notetool.Tools says clinote runs %q, the executor claims %q",
+				tool.Lang, Lang)
+		}
+	}
+	if !found {
+		t.Errorf("notetool.Tools has no entry for clinote; the suggestion machinery " +
+			"has no other source of truth")
 	}
 }
