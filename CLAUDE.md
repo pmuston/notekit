@@ -4,10 +4,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Repository state
 
-Go module `github.com/pmuston/notekit` on Go 1.25.4. **M0 is complete**: `meta`, `doc`,
-the conformance corpus, and the `notefmt` CLI. `run`, `exec`, `kind`, and `serve` are
-doc-comment skeletons — M1 is next. The specs are the authority for everything that gets
-built:
+Go module `github.com/pmuston/notekit` on Go 1.25.4. **M0 and M1 are complete**: `meta`,
+`doc`, the conformance corpus, `notefmt`, plus `exec`, `kind`, `run` and the `noterun`
+demo. Only `serve` is still a doc-comment skeleton — M2 is next. The specs are the
+authority for everything that gets built:
 
 | File | Owns |
 |---|---|
@@ -111,13 +111,14 @@ registration + `main`. Target surface is Go/Echo/HTMX only.
 
 ```
 notekit/
-  cmd/notefmt/  the M0 CLI: check, list, sidecars — a permanent linter
-  doc/    document model: parse, cells, slugs, byte-range splice
-  meta/   info-string metadata grammar: parse + canonical serialise
-  run/    run scheduler: async execution, capture limits, result splice
-  exec/   executor and session contracts (interfaces only)
-  kind/   result kinds and renderer registry
-  serve/  Echo handlers + HTMX templates + go:embed assets
+  cmd/notefmt/    the M0 linter: check, list, sidecars
+  cmd/noterun/    the M1 demo: the full async loop, no server
+  doc/            document model: parse, cells, slugs, byte-range splice, result writers
+  meta/           info-string metadata grammar: parse + canonical serialise
+  run/            run scheduler: async execution, capture limits, splice, atomic save
+  exec/           executor and session contracts; exec/echoexec is the reference impl
+  kind/           result-kind registry: durable writers now, live renderers at M2
+  serve/          Echo handlers + HTMX templates + go:embed assets (not yet built)
 ```
 
 Three architectural decisions drive almost every implementation choice:
@@ -181,11 +182,24 @@ Further invariants worth internalising before touching `run` or `exec`:
 - **Runs are async and serialised per notebook.** A run request returns a run ID
   immediately; state is pollable. Sessions are stateful, so concurrent cell
   execution within one notebook is forbidden; different notebooks may run
-  concurrently.
+  concurrently. One goroutine per notebook is what enforces this, so `make race` is
+  not optional.
+- **`Done` vs `Failed` is easy to get backwards.** A cell whose *domain* failed — a
+  non-zero exit status — is a **successful run** that persists an `error` block: `Done`,
+  with `Form` reporting `error`. `Failed` means the run could not complete at all and
+  **nothing is persisted**. Tools should exit 0 on a domain failure.
+- **Saving is atomic**: temp file plus rename, preserving the file's mode. The file is
+  the artifact, so a torn write is unacceptable.
+- **An unregistered result kind is an error**, never a silent fall back to `text` — a
+  kind with no durable form is inadmissible.
 - **Results are volatile.** Every run replaces the whole of the cell's result position
   and overwrites its sidecar files. No freeze, no staleness, no protection. A run
   writes exactly one result construct — `output` fence, `error` fence, or sidecar
   reference — never a failure folded into degenerate output.
+- **Superseded vs orphaned sidecars are different things** (format spec §8.1). A run
+  *removes* files carrying the id of the cell it just ran that it did not itself write —
+  that cell's own dead artifacts. An orphan, whose id matches no cell at all, is only
+  ever *reported*. Never conflate them.
 - **An unclosed source fence has no result position**, so persisting its result is
   refused rather than written (format spec §4.2). The fence extends to end of file;
   appending there lands inside the fence body and corrupts the cell, and closing it
@@ -259,6 +273,7 @@ Commands:
 make test          # go test ./...
 make lint          # go vet + gofmt check
 make fuzz          # all six targets, 30s each; FUZZTIME=2m for longer
+make race          # go test -race ./... — the scheduler is concurrent
 make check-corpus  # lint the acceptance corpus with notefmt itself
 go test ./doc -run TestResultPosition
 ```

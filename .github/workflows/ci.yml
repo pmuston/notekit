@@ -31,6 +31,10 @@ jobs:
       - name: test
         run: go test ./...
 
+      # One goroutine per notebook makes data races a real failure mode.
+      - name: race
+        run: go test -race ./...
+
       # Lint the acceptance corpus with the tool built from it — a self-check that
       # catches a notefmt regression and a corpus regression alike.
       - name: notefmt check corpus

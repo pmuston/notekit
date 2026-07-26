@@ -15,6 +15,9 @@ Revised since first draft:
 - **Sections and result position (§4)** — `section` is now the single delimiting
   concept, running to the next heading of *any* level; the old level-based `span` is
   gone. Result position is defined once and admits exactly three result forms.
+- **Sidecar lifecycle (§8.1)** — a run removes *superseded* artifacts of the cell it
+  ran, while orphans of deleted cells remain report-only. Closes the gap where a cell
+  that stopped producing a sidecar left files behind that no rule reached.
 
 One `VERIFY AGAINST PRIORTOOL` placeholder remains (sidecar directory name and payload
 shape, §8) — settle from priortool source before freezing.
@@ -329,6 +332,18 @@ attachment. Nothing to detect, nothing to repair.
 orphan — which now means precisely one thing: the cell was deleted (or its `id` was
 stripped by hand). Tools must report orphans and must never delete them silently.
 
+**Superseded artifacts.** A file carrying the `id` of a **live** cell that the latest run
+of *that cell* did not write is superseded, and the run removes it. This is the volatile
+lifecycle applied to sidecars: a run replaces the whole of a cell's result, so a
+previous artifact of the same cell is dead once that run completes — whether the cell now
+produces different files, or no sidecar at all.
+
+This is not the silent deletion of user data forbidden above, and the distinguishing
+question is whose artifact it is. A superseded file belongs to the very cell the user just
+asked to run, and would have been overwritten anyway had its name not changed. An orphan
+belongs to a cell that no longer exists, no run touches it, and it is only ever reported.
+A tool must not conflate the two.
+
 > **VERIFY AGAINST PRIORTOOL** — the directory name and the payload JSON shape are
 > written from the priortool spec; check them against the priortool implementation and
 > adjust whichever diverged before freezing. The **naming convention** above is not in
@@ -430,6 +445,8 @@ The format ships with a golden-file corpus; a conforming implementation passes a
     escape sequences, and stray control characters.
 11. Sidecar naming: `<slug>--<id>` written and split on the last `--`, an empty slug
     yielding `<id>` alone, and a slug that itself contains `--`.
+12. Sidecar lifecycle: a run removing a superseded artifact of the cell it ran while
+    leaving an orphan of a deleted cell untouched.
 
 ## 12. Non-goals (format v1)
 

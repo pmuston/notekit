@@ -5,8 +5,8 @@
 > milestone list glosses over, and lists the spec questions each stage will force.
 > Not normative: the three specs govern. This document is disposable once M3 lands.
 
-Status: draft · **M0 complete** — Stage 0, `meta`, `doc`, the conformance corpus, and
-`notefmt`. M1 (`exec` + `run`) is next.
+Status: draft · **M0 and M1 complete** — Stage 0, `meta`, `doc`, the conformance corpus,
+`notefmt`, plus `exec`, `kind`, `run` and the `noterun` demo. M2 (`serve`) is next.
 
 ---
 
@@ -210,7 +210,7 @@ reader would otherwise copy into a tool.
 **M0 gate:** full corpus green; `notefmt` round-trip-checks every corpus file and every
 spec document's embedded examples; both fuzz targets green. No execution code exists.
 
-## 4. M1 — `exec` + `run` + `kind` (durable half)
+## 4. M1 — `exec` + `run` + `kind` (durable half) — ✅ COMPLETE
 
 **Sequencing correction to the kit spec:** §6 implies `kind` arrives with `serve`, but
 `run` cannot write a result block without knowing its durable form — whether a result
@@ -234,8 +234,30 @@ slots from the start and leave the renderer slot empty.
 - **`echo` executor** — trivial, returns its input. The point is to exercise the
   contract, including a deliberate failure path for `error` blocks.
 
-**Gate:** CLI demo runs cells through the echo executor; corpus still green; error
-blocks, truncation, and cancellation all covered; teardown verified under both signals.
+**Gate:** ✅ met. `noterun` drives the full async loop through the echo executor; the
+corpus is still green; error blocks, truncation, and cancellation are covered; teardown is
+verified by actually sending SIGINT and SIGTERM to the test process, not by inspection.
+`go test -race ./...` is clean and runs in CI, because one goroutine per notebook makes
+data races a real failure mode rather than a theoretical one.
+
+Design notes worth carrying into M2:
+
+- **Done versus Failed** is the distinction most likely to be got backwards. A cell whose
+  *domain* failed — a non-zero exit status — is a **successful run** that persists an
+  `error` block: `Done`, with `Form` reporting `error`. `Failed` means the run could not
+  complete (no session, a refused splice, an unwritable file) and **nothing is
+  persisted**. `noterun`'s exit code follows: a domain failure exits 0.
+- **An unclosed source fence is refused before execution, not after.** The cell has no
+  result position (§4.2), so running it and then discarding the answer would waste the
+  side effects of a real command.
+- **Saving is atomic** — temp file plus rename, preserving the notebook's mode. A crash
+  midway through a direct write would leave a truncated notebook, and the file is the
+  artifact. A concurrent reader never observes a partial parse, which
+  `TestSaveIsAtomic` asserts by polling the file while runs are in flight.
+- **An unregistered kind is an error**, never a silent fall back to text: a kind with no
+  durable form is inadmissible under the two-forms rule.
+- `Scheduler` takes an injectable clock and id generator for the same reason the corpus
+  does — result metadata carries a timestamp, and a sidecar run may assign an id.
 
 ## 5. M2 — `serve`
 
@@ -325,7 +347,22 @@ the provenance comment and image link form **one** construct, and an image link 
 comment before it is *always* prose. Users put images in notebooks; without that rule a
 tool could overwrite one as if it were a result.
 
-### 8.3 Sidecars stranded by a kind change — genuine gap, resolve before M2
+### 8.3 Sidecars stranded by a kind change — ✅ RESOLVED, format spec §8.1
+
+A run removes files carrying the id of the cell it ran that it did not itself write.
+That is the volatile lifecycle applied to sidecars: a run replaces the whole of a cell's
+result, so a previous artifact of the same cell is dead once the run completes — whether
+the cell now produces different files or no sidecar at all.
+
+Neither option originally floated was right. Report-only leaves cruft accumulating with
+nobody to clear it; "delete on volatile replacement" as stated was too broad, because it
+did not distinguish whose artifact was being removed. The distinguishing question is
+ownership: a superseded file belongs to the cell the user just asked to run and would
+have been overwritten anyway had its name not changed, while an orphan belongs to a cell
+that no longer exists and is only ever reported. `TestSupersededSidecarsRemoved` asserts
+both halves in one run.
+
+### 8.3 (original wording, retained for context) — sidecars stranded by a kind change
 
 A cell that produced a sidecar (and so carries an `id`) is edited to produce text
 instead. Volatile lifecycle overwrites *result blocks*, and the rendering contract says

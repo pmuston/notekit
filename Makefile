@@ -1,4 +1,4 @@
-.PHONY: build test fuzz lint vendor all notefmt check-corpus
+.PHONY: build test race fuzz lint vendor all notefmt noterun check-corpus
 
 all: lint test
 
@@ -9,6 +9,10 @@ build:
 notefmt:
 	go build -o notefmt ./cmd/notefmt
 
+# The M1 demo: the full async loop with no server involved.
+noterun:
+	go build -o noterun ./cmd/noterun
+
 # Lint the corpus with the tool itself: a self-check that the acceptance suite's
 # own files are clean.
 check-corpus: notefmt
@@ -16,6 +20,11 @@ check-corpus: notefmt
 
 test:
 	go test ./...
+
+# The scheduler runs one goroutine per notebook, so data races are a real failure
+# mode rather than a theoretical one.
+race:
+	go test -race ./...
 
 # Byte-identical round-trip is the property under test — see the implementation
 # plan §7. Go runs one fuzz target per invocation, hence the separate lines.
