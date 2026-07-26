@@ -578,3 +578,63 @@ func TestShellIsNonInteractive(t *testing.T) {
 		})
 	}
 }
+
+// TestDrainConsumesPendingBytesWithoutWaiting pins both halves of drain's contract, and
+// the old implementation failed a different half on each platform: on darwin a pty master
+// rejects SetReadDeadline outright, so drain returned having consumed nothing, and on linux
+// the deadline was accepted and then ignored — creack/pty's ioctls go through File.Fd(),
+// which restores blocking mode — so the read waited forever and hung session init for the
+// whole test timeout in CI.
+//
+// The assertion is behavioural rather than an FIONREAD count, because what actually
+// matters is that one cell's late output is never attributed to the next cell. A test that
+// only checked "drain returns promptly" would have passed on darwin while draining nothing.
+func TestDrainConsumesPendingBytesWithoutWaiting(t *testing.T) {
+	sess := newSession(t)
+	s := sess.(*shellSession)
+
+	// Bytes with no sentinel following them, exactly as a process backgrounded by a
+	// previous cell would produce. Nothing consumes these.
+	if _, err := s.in.Write([]byte("printf 'stray-bytes\\n'\n")); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	time.Sleep(400 * time.Millisecond) // let them land on the master
+
+	// Execute drains first, so a hanging drain hangs here — which is what CI saw.
+	done := make(chan struct{})
+	var got exec.Result
+	var execErr error
+	go func() {
+		got, execErr = s.Execute(context.Background(), exec.Request{Source: "echo after-drain\n"})
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(10 * time.Second):
+		t.Fatal("Execute hung: drain must bound itself on the descriptor (O_NONBLOCK), " +
+			"not on a read deadline that a pty master may reject or ignore")
+	}
+	if execErr != nil {
+		t.Fatalf("Execute: %v", execErr)
+	}
+
+	// Exactly the new cell's output. "stray-bytes" here means drain returned without
+	// consuming anything, which is what darwin did.
+	body, _ := got.Payload.(string)
+	if strings.Contains(body, "stray-bytes") {
+		t.Errorf("the previous cell's late output leaked into this cell: %q", body)
+	}
+	if body != "after-drain\n" {
+		t.Errorf("Payload = %q, want exactly %q", body, "after-drain\n")
+	}
+
+	// Still usable, so drain restored the descriptor's flags. Leaving O_NONBLOCK on would
+	// break readUntilSentinel, which blocks deliberately.
+	got, err := s.Execute(context.Background(), exec.Request{Source: "echo still-fine\n"})
+	if err != nil {
+		t.Fatalf("Execute after drain: %v", err)
+	}
+	if body, _ := got.Payload.(string); body != "still-fine\n" {
+		t.Errorf("Payload = %q, want %q", body, "still-fine\n")
+	}
+}

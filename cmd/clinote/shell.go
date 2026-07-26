@@ -335,21 +335,47 @@ func (s *shellSession) Execute(ctx context.Context, req exec.Request) (exec.Resu
 	}
 }
 
-// drain consumes any bytes left over between commands, so a stray write cannot be
-// attributed to the next cell.
+// drain consumes any bytes left over between commands, so a stray write — a process
+// backgrounded by the previous cell, say — cannot be attributed to the next one.
+//
+// It must read what is *already* there and never wait for more, and doing that portably
+// is the whole difficulty. Read deadlines are not the answer: a pty master does not
+// support them on darwin (SetReadDeadline fails outright, so this returned having drained
+// nothing), and on linux the deadline is accepted and then ignored, because creack/pty
+// performs its ioctls through File.Fd() — which puts the descriptor back into blocking
+// mode while leaving the poller state intact. A blocking read then never consults the
+// deadline and waits forever. That hung session init for the full test timeout in CI.
+//
+// So the bound comes from the descriptor instead of from a timer: O_NONBLOCK guarantees
+// EAGAIN rather than a wait, which is a property of the syscall rather than of any
+// platform's poller. SyscallConn().Control hands over the descriptor without disturbing
+// its blocking mode, unlike Fd(). The original flags go back on afterwards because
+// readUntilSentinel wants exactly the opposite — it blocks on purpose, waiting for a
+// sentinel that is definitely coming.
 func (s *shellSession) drain() {
-	if err := s.pty.SetReadDeadline(time.Now().Add(20 * time.Millisecond)); err != nil {
-		return
+	rc, err := s.pty.SyscallConn()
+	if err != nil {
+		return // a closed session has nothing to drain
 	}
-	defer func() { _ = s.pty.SetReadDeadline(time.Time{}) }()
-
-	buf := make([]byte, 4096)
-	for {
-		n, err := s.pty.Read(buf)
-		if n == 0 || err != nil {
+	_ = rc.Control(func(fd uintptr) {
+		flags, err := unix.FcntlInt(fd, unix.F_GETFL, 0)
+		if err != nil {
 			return
 		}
-	}
+		if flags&unix.O_NONBLOCK == 0 {
+			if _, err := unix.FcntlInt(fd, unix.F_SETFL, flags|unix.O_NONBLOCK); err != nil {
+				return
+			}
+			defer func() { _, _ = unix.FcntlInt(fd, unix.F_SETFL, flags) }()
+		}
+		buf := make([]byte, 4096)
+		for {
+			n, err := unix.Read(int(fd), buf)
+			if n <= 0 || err != nil {
+				return // EAGAIN once the pending bytes are gone
+			}
+		}
+	})
 }
 
 // readUntilSentinel reads until the sentinel line arrives, returning the body before it,
@@ -440,9 +466,23 @@ func (s *shellSession) interrupt() error {
 	if s.closed.Load() {
 		return nil
 	}
-	pgrp, err := unix.IoctlGetInt(int(s.pty.Fd()), unix.TIOCGPGRP)
+	// Control rather than Fd(): Fd() has the side effect of putting the descriptor into
+	// blocking mode, which is what made drain hang for the length of the test timeout.
+	// Control also fails cleanly on an already-closed file instead of handing back a
+	// descriptor number that may since have been reused.
+	rc, err := s.pty.SyscallConn()
 	if err != nil {
-		return fmt.Errorf("clinote: TIOCGPGRP: %w", err)
+		return fmt.Errorf("clinote: pty descriptor: %w", err)
+	}
+	var pgrp int
+	var ioctlErr error
+	if err := rc.Control(func(fd uintptr) {
+		pgrp, ioctlErr = unix.IoctlGetInt(int(fd), unix.TIOCGPGRP)
+	}); err != nil {
+		return fmt.Errorf("clinote: pty descriptor: %w", err)
+	}
+	if ioctlErr != nil {
+		return fmt.Errorf("clinote: TIOCGPGRP: %w", ioctlErr)
 	}
 	return syscall.Kill(-pgrp, syscall.SIGINT)
 }
