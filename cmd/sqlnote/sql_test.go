@@ -570,3 +570,46 @@ func TestDomainErrorPassesThroughNonSQLiteErrors(t *testing.T) {
 		t.Error("domainError(nil) should be nil")
 	}
 }
+
+// TestRowCountIsNotStickyAcrossCells is a regression for a bug the shipped example
+// exposed: SQLite's `changes()` keeps the previous statement's value for anything that is
+// not an INSERT, UPDATE or DELETE, so a `CREATE TABLE … AS SELECT`, a bare `SELECT` or a
+// `PRAGMA` would report the row count of whatever cell ran before it. A wrong number
+// attributed to the wrong statement is worse than no number, so the count is a
+// `total_changes()` delta.
+func TestRowCountIsNotStickyAcrossCells(t *testing.T) {
+	sess := memSession(t)
+	mustRun(t, sess, "CREATE TABLE p(n TEXT, q INT)", "sql")
+
+	// Establish a non-zero counter that a sticky read would leak into later cells.
+	if got := mustRun(t, sess, "INSERT INTO p VALUES ('a',340),('b',120),('c',45),('d',8)", "sql"); true {
+		if body, _ := got.Payload.(string); body != "OK, 4 rows affected\n" {
+			t.Fatalf("setup insert reported %q", body)
+		}
+	}
+
+	tests := []struct{ name, source, want string }{
+		// SQLite does not count these as changes, so a delta is zero — which is its
+		// own accounting, and far better than inheriting the 4 above.
+		{"create table as select", "CREATE TEMP TABLE bulk AS SELECT n,q FROM p WHERE q>=100", "OK\n"},
+		{"pragma", "PRAGMA foreign_keys = ON", "OK\n"},
+		{"create table", "CREATE TABLE q2(x INT)", "OK\n"},
+		// And real changes are still exact.
+		{"update one", "UPDATE p SET q = 1 WHERE n = 'd'", "OK, 1 row affected\n"},
+		{"delete one", "DELETE FROM p WHERE n = 'd'", "OK, 1 row affected\n"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := mustRun(t, sess, tt.source, "sql")
+			if body, _ := got.Payload.(string); body != tt.want {
+				t.Errorf("Payload = %q, want %q", body, tt.want)
+			}
+		})
+	}
+
+	// The temp table really does hold two rows, so only the count was ever wrong.
+	got := mustRun(t, sess, "SELECT count(*) AS c FROM bulk", "sql")
+	if p, _ := got.Payload.(kind.TablePayload); p.Body != "c\n2\n" {
+		t.Errorf("the temp table holds %q, want 2 rows", p.Body)
+	}
+}

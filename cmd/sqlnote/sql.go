@@ -139,6 +139,10 @@ func (s *Session) Execute(ctx context.Context, req exec.Request) (exec.Result, e
 		return exec.Result{Kind: kind.Text, Payload: ""}, nil
 	}
 
+	// Read the change counter before running, so a non-query cell can report what *it*
+	// changed rather than what some earlier cell did — see changedSince.
+	before := s.totalChanges(ctx)
+
 	rows, err := s.conn.QueryContext(ctx, source)
 	if err != nil {
 		return exec.Result{}, domainError(err)
@@ -156,7 +160,7 @@ func (s *Session) Execute(ctx context.Context, req exec.Request) (exec.Result, e
 		if err := rows.Close(); err != nil {
 			return exec.Result{}, domainError(err)
 		}
-		return exec.Result{Kind: kind.Text, Payload: s.changesSummary(ctx)}, nil
+		return exec.Result{Kind: kind.Text, Payload: s.changedSince(ctx, before)}, nil
 	}
 
 	table, truncated, err := s.scan(rows, cols, tableFormat(req))
@@ -301,23 +305,38 @@ func jsonValue(v any) any {
 	}
 }
 
-// changesSummary reports what a non-query cell did.
+// totalChanges reads SQLite's cumulative row-change counter for this connection.
 //
-// `changes()` is per-connection state, which is only reliable because the session holds
-// one dedicated connection — on a pool this would report another cell's work or nothing
-// at all.
-func (s *Session) changesSummary(ctx context.Context) string {
-	var changes int64
-	if err := s.conn.QueryRowContext(ctx, "SELECT changes()").Scan(&changes); err != nil {
+// Per-connection state, which is only meaningful because the session holds one dedicated
+// connection: on a pool this would read some other cell's counter, or a fresh zero.
+func (s *Session) totalChanges(ctx context.Context) int64 {
+	var n int64
+	if err := s.conn.QueryRowContext(ctx, "SELECT total_changes()").Scan(&n); err != nil {
+		return -1 // unknown; changedSince reports plain "OK"
+	}
+	return n
+}
+
+// changedSince reports what a non-query cell changed, as a delta.
+//
+// A delta rather than `changes()`, because `changes()` is **sticky**: it keeps the previous
+// statement's value for anything that is not an INSERT, UPDATE or DELETE. A cell running
+// `CREATE TEMP TABLE … AS SELECT`, a bare `SELECT`, or a `PRAGMA` would otherwise report
+// the row count of whatever cell ran before it — which is not a rounding error but a wrong
+// number attributed to the wrong statement. A `total_changes()` delta is zero for those,
+// which is what SQLite's own accounting says, and exact for the rest.
+func (s *Session) changedSince(ctx context.Context, before int64) string {
+	after := s.totalChanges(ctx)
+	if before < 0 || after < 0 {
 		return "OK\n"
 	}
-	switch changes {
+	switch changed := after - before; changed {
 	case 0:
 		return "OK\n"
 	case 1:
 		return "OK, 1 row affected\n"
 	default:
-		return fmt.Sprintf("OK, %d rows affected\n", changes)
+		return fmt.Sprintf("OK, %d rows affected\n", changed)
 	}
 }
 

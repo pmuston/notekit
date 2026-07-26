@@ -17,9 +17,10 @@ that gate 4 asked for). The specs are the authority for everything that gets bui
 | [notekit-kit-spec.md](notekit-kit-spec.md) | The Go library: package layout, responsibilities, milestones, style constraints |
 | [notekit-rendering-contract.md](notekit-rendering-contract.md) | What a result *is*: core result kinds, live vs durable forms, extension rules |
 | [notekit-implementation-plan.md](notekit-implementation-plan.md) | Non-normative build plan: staged M0–M3 with gates, testing strategy, and the spec questions each stage forces |
+| [docs/sqlnote-demo.md](docs/sqlnote-demo.md) | Five-minute demo guide for sqlnote; every command in it is verified to work |
 
 Read the first four in that order — each is downstream of the earlier ones. The plan is
-disposable once M3 lands; the specs govern if they ever disagree with it.
+disposable now that M3 has landed; the specs govern if they ever disagree with it.
 
 ### Reading the harvest citations
 
@@ -115,7 +116,7 @@ The **kit** is a Go library implementing the format and runtime mechanics so eac
 notebook tool (clinote v2 first, then sqlnote, etc.) is a thin binary: executor +
 registration + `main`. Target surface is Go/Echo/HTMX only.
 
-## Architecture (as specified, not yet built)
+## Architecture
 
 ```
 notekit/
@@ -283,6 +284,10 @@ Database-specific lessons from sqlnote:
   quoting, and getting it subtly wrong would run the wrong thing.
 - **Render values exactly, not prettily.** `7 * 0.05` persists as `0.35000000000000003`.
   csv is data other tools parse, and rounding for looks would silently change the value.
+- **`changes()` is sticky; use a `total_changes()` delta.** SQLite keeps the previous
+  statement's count for anything that is not an INSERT, UPDATE or DELETE, so a
+  `CREATE TABLE … AS SELECT`, a bare `SELECT` or a `PRAGMA` would report the row count of
+  whatever cell ran before it. Found by writing the demo, not by review.
 
 Shell-specific lessons worth not relearning:
 
@@ -355,11 +360,14 @@ real requirement and a diff-based bound is ambiguous for insertions.
 Commands:
 
 ```bash
+make bins          # build all five commands into bin/
+make demo          # build, then point at the shipped example
 make test          # go test ./...
 make lint          # go vet + gofmt check
 make fuzz          # all six targets, 30s each; FUZZTIME=2m for longer
 make race          # go test -race ./... — the scheduler is concurrent
 make check-corpus  # lint the acceptance corpus with notefmt itself
+make clean         # remove bin/
 make vendor        # refresh HTMX; then update serve/assets/VENDOR.md and read the diff
 go test ./doc -run TestResultPosition
 ```
@@ -371,6 +379,11 @@ metadata); warnings are things that are legal but worth saying (unclosed fence,
 several result constructs, stale or orphaned sidecars). `-strict` promotes warnings.
 **notefmt never writes to a notebook** — a stale sidecar is reported with the name it
 should have, and an orphan is reported and left alone.
+
+`examples/parts.md` is a runnable notebook with its results committed, so it reads as a
+finished article on GitHub before anything is run. `make demo` points at it. Re-running
+replaces the results — they are volatile — and because it is self-contained the second run
+differs only in its timestamps.
 
 ## Dependency policy
 

@@ -1,9 +1,25 @@
-.PHONY: build test race fuzz lint vendor all notefmt noterun noteserve clinote sqlnote check-corpus
+.PHONY: build bins test race fuzz lint vendor all notefmt noterun noteserve clinote sqlnote check-corpus demo clean
 
 all: lint test
 
 build:
 	go build ./...
+
+# Every command, into bin/. One static binary each, no runtime file dependencies
+# beyond the notebook and its sidecar directory.
+BINS = notefmt noterun noteserve clinote sqlnote
+
+bins:
+	@mkdir -p bin
+	@for b in $(BINS); do \
+		printf '  %-10s' "$$b"; \
+		go build -o bin/$$b ./cmd/$$b && echo ok || exit 1; \
+	done
+	@echo "built $(words $(BINS)) binaries into bin/"
+
+clean:
+	rm -rf bin
+	rm -f $(BINS)
 
 # notefmt is the M0 deliverable and stays useful as a linter.
 notefmt:
@@ -24,6 +40,14 @@ clinote:
 # sqlnote (gate 4): the second consumer, and the first non-shell domain.
 sqlnote:
 	go build -o sqlnote ./cmd/sqlnote
+
+# Run the shipped example, which rewrites its own result blocks in place. The example
+# is self-contained (no sqlnote-db), so it reconstructs its data from empty every time
+# and leaves no database behind.
+demo: bins
+	./bin/notefmt list examples/parts.md
+	@echo
+	@echo "now: ./bin/sqlnote examples/parts.md   then open the URL it prints"
 
 # Lint the corpus with the tool itself: a self-check that the acceptance suite's
 # own files are clean.
