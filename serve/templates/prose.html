@@ -1,0 +1,26 @@
+{{define "prose"}}
+{{- if .Editable}}
+<div class="nk-prose" id="prose-{{.Ref}}">
+  {{- if .Editing}}
+  <form hx-put="{{.Base}}/prose/{{.Ref}}" hx-target="#prose-{{.Ref}}" hx-swap="outerHTML">
+    <textarea class="nk-prose-edit" name="text" aria-label="prose">{{.Text}}</textarea>
+    <div class="nk-edit-bar">
+      <button class="nk-btn" type="submit">Save</button>
+      <button class="nk-btn" type="button"
+              hx-get="{{.Base}}/prose/{{.Ref}}"
+              hx-target="#prose-{{.Ref}}" hx-swap="outerHTML">Cancel</button>
+      <span class="nk-dirty" data-dirty="false">unsaved changes</span>
+    </div>
+  </form>
+  {{- else}}
+  <div class="nk-prose-rendered"
+       role="button" tabindex="0"
+       aria-label="edit prose"
+       hx-get="{{.Base}}/prose/{{.Ref}}?edit=1"
+       hx-trigger="click, keyup[key=='Enter'], keyup[key==' ']"
+       hx-target="#prose-{{.Ref}}" hx-swap="outerHTML"
+       title="click or press Enter to edit">{{if .Text}}{{.Text}}{{else}}<span class="nk-prose-empty">(no prose — click to add)</span>{{end}}</div>
+  {{- end}}
+</div>
+{{- end}}
+{{end}}

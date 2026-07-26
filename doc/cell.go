@@ -253,3 +253,26 @@ func (c *Cell) String() string {
 	}
 	return fmt.Sprintf("%s\t%s\tid=%s\tslug=%s\tresult=%s", c.HeadingText, c.Lang, id, c.Slug, form)
 }
+
+// ProseBefore returns the span of prose between the cell's heading and its source
+// fence — the explanatory paragraph a notebook usually carries there.
+//
+// Editable regions are derived rather than stored: the format has no "prose block"
+// construct (§3), so a tool that wants to edit prose computes the span from the
+// constructs that *are* modelled. Deriving it also means the span is always current,
+// where a stored one would go stale the moment anything above it changed.
+func (c *Cell) ProseBefore() Span {
+	return Span{Start: c.Heading.End, End: c.Source.Start}
+}
+
+// ProseAfter returns the span of prose from the end of the cell's result position to
+// the end of its section.
+//
+// It is empty for a cell whose source fence is unclosed, since such a fence runs to end
+// of file (§4.2) and there is nothing after it.
+func (c *Cell) ProseAfter() Span {
+	if c.ResultPos.End > c.Section.End {
+		return Span{Start: c.Section.End, End: c.Section.End}
+	}
+	return Span{Start: c.ResultPos.End, End: c.Section.End}
+}

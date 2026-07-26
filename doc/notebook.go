@@ -96,3 +96,14 @@ func (n *Notebook) CellByID(id string) *Cell {
 	}
 	return nil
 }
+
+// Preamble returns the span of content between the front matter and the first cell's
+// section, which is where a notebook's opening prose lives.
+//
+// It covers the whole body when the notebook has no cells.
+func (n *Notebook) Preamble() Span {
+	if len(n.cells) == 0 {
+		return n.body
+	}
+	return Span{Start: n.body.Start, End: n.cells[0].Section.Start}
+}

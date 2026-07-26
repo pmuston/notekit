@@ -1,0 +1,208 @@
+/* notekit UI styles. Committed, embedded, no build step (harvest R9). */
+
+:root {
+  --nk-fg: #1a1a1a;
+  --nk-muted: #666;
+  --nk-bg: #fff;
+  --nk-surface: #f6f7f9;
+  --nk-border: #d8dbe0;
+  --nk-accent: #0b5fff;
+  --nk-error-fg: #8b1a1a;
+  --nk-error-bg: #fdf2f2;
+  --nk-error-border: #f0c8c8;
+  --nk-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --nk-fg: #e6e6e6;
+    --nk-muted: #9aa0a6;
+    --nk-bg: #16181c;
+    --nk-surface: #1e2126;
+    --nk-border: #333840;
+    --nk-accent: #6ea8ff;
+    --nk-error-fg: #ff9b9b;
+    --nk-error-bg: #2a1c1c;
+    --nk-error-border: #5a2b2b;
+  }
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  padding: 2rem 1rem 6rem;
+  font: 16px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  color: var(--nk-fg);
+  background: var(--nk-bg);
+}
+
+main { max-width: 52rem; margin: 0 auto; }
+
+h1.nk-title { font-size: 1.6rem; margin: 0 0 0.25rem; }
+.nk-path { color: var(--nk-muted); font: 0.85rem var(--nk-mono); margin: 0 0 2rem; }
+
+.nk-cell { margin: 0 0 2.5rem; }
+.nk-cell-head { display: flex; align-items: baseline; gap: 0.75rem; }
+.nk-cell-head h2 { font-size: 1.15rem; margin: 0 0 0.5rem; flex: 1; }
+.nk-cell-meta { color: var(--nk-muted); font: 0.75rem var(--nk-mono); }
+
+/* Source and results */
+pre.nk-source, pre.nk-output, pre.nk-error {
+  margin: 0.5rem 0;
+  padding: 0.75rem 1rem;
+  overflow-x: auto;
+  border-radius: 6px;
+  font: 0.85rem/1.5 var(--nk-mono);
+  white-space: pre;
+}
+pre.nk-source { background: var(--nk-surface); border: 1px solid var(--nk-border); }
+pre.nk-output { background: var(--nk-surface); border: 1px solid var(--nk-border); }
+pre.nk-error {
+  background: var(--nk-error-bg);
+  border: 1px solid var(--nk-error-border);
+  color: var(--nk-error-fg);
+}
+pre.nk-malformed { border-style: dashed; }
+
+.nk-result-meta { color: var(--nk-muted); font: 0.72rem var(--nk-mono); margin: 0.25rem 0 0; }
+.nk-truncated { color: var(--nk-error-fg); }
+
+/* Sortable tables. Sortability is live-only and degrades to a plain table. */
+table.nk-table {
+  border-collapse: collapse;
+  margin: 0.5rem 0;
+  font: 0.85rem var(--nk-mono);
+  width: 100%;
+  display: block;
+  overflow-x: auto;
+}
+table.nk-table th, table.nk-table td {
+  border: 1px solid var(--nk-border);
+  padding: 0.3rem 0.6rem;
+  text-align: left;
+  white-space: nowrap;
+}
+table.nk-table th {
+  background: var(--nk-surface);
+  cursor: pointer;
+  user-select: none;
+  position: relative;
+}
+table.nk-table th::after { content: ""; color: var(--nk-muted); padding-left: 0.4rem; }
+table.nk-table th[aria-sort="ascending"]::after { content: "▲"; }
+table.nk-table th[aria-sort="descending"]::after { content: "▼"; }
+table.nk-table th:focus-visible { outline: 2px solid var(--nk-accent); }
+
+/* Controls */
+.nk-btn {
+  font: inherit;
+  font-size: 0.8rem;
+  padding: 0.25rem 0.7rem;
+  border: 1px solid var(--nk-border);
+  border-radius: 5px;
+  background: var(--nk-bg);
+  color: var(--nk-fg);
+  cursor: pointer;
+}
+.nk-btn:hover { border-color: var(--nk-accent); color: var(--nk-accent); }
+.nk-btn[disabled] { opacity: 0.5; cursor: default; }
+
+/* Spinner. Polling is at 500 ms (harvest R3). */
+.nk-spinner {
+  display: inline-block;
+  width: 0.8em; height: 0.8em;
+  border: 2px solid var(--nk-border);
+  border-top-color: var(--nk-accent);
+  border-radius: 50%;
+  animation: nk-spin 0.7s linear infinite;
+  vertical-align: -0.1em;
+}
+@keyframes nk-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .nk-spinner { animation-duration: 2s; }
+}
+.nk-running { color: var(--nk-muted); font-size: 0.85rem; padding: 0.5rem 0; }
+
+/* Prose editing */
+.nk-prose { position: relative; }
+.nk-prose-rendered { white-space: pre-wrap; }
+.nk-prose-rendered:hover { outline: 1px dashed var(--nk-border); outline-offset: 4px; }
+.nk-prose-rendered:focus-visible { outline: 2px solid var(--nk-accent); outline-offset: 4px; }
+.nk-prose-empty { color: var(--nk-muted); font-style: italic; font-size: 0.85rem; }
+textarea.nk-prose-edit {
+  width: 100%;
+  min-height: 6rem;
+  font: 0.85rem/1.5 var(--nk-mono);
+  padding: 0.6rem;
+  border: 1px solid var(--nk-accent);
+  border-radius: 6px;
+  background: var(--nk-bg);
+  color: var(--nk-fg);
+  resize: vertical;
+}
+.nk-edit-bar { display: flex; align-items: center; gap: 0.6rem; margin-top: 0.4rem; }
+
+/* The unsaved-changes indicator (harvest R5). */
+.nk-dirty {
+  color: var(--nk-error-fg);
+  font-size: 0.78rem;
+  visibility: hidden;
+}
+.nk-dirty[data-dirty="true"] { visibility: visible; }
+
+.nk-flash {
+  position: fixed;
+  bottom: 1rem; left: 50%;
+  transform: translateX(-50%);
+  padding: 0.5rem 1rem;
+  border-radius: 6px;
+  background: var(--nk-surface);
+  border: 1px solid var(--nk-border);
+  font-size: 0.85rem;
+}
+.nk-flash[data-kind="error"] {
+  background: var(--nk-error-bg);
+  border-color: var(--nk-error-border);
+  color: var(--nk-error-fg);
+}
+
+/* ANSI palette. Colour is live-only: it is stripped from disk (harvest F12). */
+.ansi-bold { font-weight: 700; }
+.ansi-italic { font-style: italic; }
+.ansi-underline { text-decoration: underline; }
+.ansi-strike { text-decoration: line-through; }
+
+.ansi-fg-0 { color: #4f5560; }
+.ansi-fg-1 { color: #d64545; }
+.ansi-fg-2 { color: #2e9b57; }
+.ansi-fg-3 { color: #b58900; }
+.ansi-fg-4 { color: #3b7dd8; }
+.ansi-fg-5 { color: #a24fb8; }
+.ansi-fg-6 { color: #2a9d9d; }
+.ansi-fg-7 { color: #c8ccd4; }
+.ansi-fg-8 { color: #77808f; }
+.ansi-fg-9 { color: #ff6b6b; }
+.ansi-fg-10 { color: #4ed37f; }
+.ansi-fg-11 { color: #e3c14f; }
+.ansi-fg-12 { color: #6ea8ff; }
+.ansi-fg-13 { color: #c77dda; }
+.ansi-fg-14 { color: #4fd0d0; }
+.ansi-fg-15 { color: #f2f4f8; }
+
+.ansi-bg-0 { background: #4f5560; }
+.ansi-bg-1 { background: #d64545; }
+.ansi-bg-2 { background: #2e9b57; }
+.ansi-bg-3 { background: #b58900; }
+.ansi-bg-4 { background: #3b7dd8; }
+.ansi-bg-5 { background: #a24fb8; }
+.ansi-bg-6 { background: #2a9d9d; }
+.ansi-bg-7 { background: #c8ccd4; }
+.ansi-bg-8 { background: #77808f; }
+.ansi-bg-9 { background: #ff6b6b; }
+.ansi-bg-10 { background: #4ed37f; }
+.ansi-bg-11 { background: #e3c14f; }
+.ansi-bg-12 { background: #6ea8ff; }
+.ansi-bg-13 { background: #c77dda; }
+.ansi-bg-14 { background: #4fd0d0; }
+.ansi-bg-15 { background: #f2f4f8; }

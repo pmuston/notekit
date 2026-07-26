@@ -1,4 +1,4 @@
-.PHONY: build test race fuzz lint vendor all notefmt noterun check-corpus
+.PHONY: build test race fuzz lint vendor all notefmt noterun noteserve check-corpus
 
 all: lint test
 
@@ -12,6 +12,10 @@ notefmt:
 # The M1 demo: the full async loop with no server involved.
 noterun:
 	go build -o noterun ./cmd/noterun
+
+# The M2 demo: the full HTMX loop in a browser.
+noteserve:
+	go build -o noteserve ./cmd/noteserve
 
 # Lint the corpus with the tool itself: a self-check that the acceptance suite's
 # own files are clean.
@@ -45,5 +49,11 @@ lint:
 # Refresh vendored frontend assets (HTMX, Sigma.js/graphology) for package serve.
 # No frontend build step exists or should exist — assets are committed and
 # go:embed-ed (harvest R9).
+# Versions and sources are recorded in serve/assets/VENDOR.md; update it too, and read
+# the diff — a vendored asset that changed silently is an unreviewed upgrade.
+HTMX_VERSION ?= 2.0.4
+
 vendor:
-	@echo "not yet implemented — vendored assets land with M2 (serve)"
+	curl -fsSL -o serve/assets/htmx.min.js \
+		https://unpkg.com/htmx.org@$(HTMX_VERSION)/dist/htmx.min.js
+	@echo "vendored htmx $(HTMX_VERSION); update serve/assets/VENDOR.md and review the diff"

@@ -117,8 +117,13 @@ type Scheduler struct {
 	notebooks map[string]*openNotebook
 	runs      map[ID]*Run
 	cancels   map[ID]context.CancelFunc
-	nextID    int
-	closed    bool
+	// live holds each cell's most recent pre-strip output, keyed by notebook path
+	// then cell index. ANSI is stripped from the durable form (§6), so this is the
+	// only place colour survives — the live view may be prettier than what
+	// persisted, and this is how (harvest F12).
+	live   map[string]map[int]string
+	nextID int
+	closed bool
 }
 
 // Option configures a Scheduler.
@@ -180,6 +185,7 @@ func New(opts ...Option) *Scheduler {
 		notebooks: make(map[string]*openNotebook),
 		runs:      make(map[ID]*Run),
 		cancels:   make(map[ID]context.CancelFunc),
+		live:      make(map[string]map[int]string),
 	}
 	for _, o := range opts {
 		o(s)
@@ -352,6 +358,37 @@ func (s *Scheduler) Submit(path string, cellIndex int) (ID, error) {
 		})
 		return id, fmt.Errorf("run: queue for %s is full", path)
 	}
+}
+
+// LiveBody returns a cell's most recent pre-strip output, if this process produced it.
+//
+// It is what a browser renders so that colour appears live, and it is deliberately
+// in-memory only: the durable form is the plain form, so colour is lost on restart
+// rather than persisted. A false second return means render the durable body instead.
+func (s *Scheduler) LiveBody(path string, cellIndex int) (string, bool) {
+	path = filepath.Clean(path)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	byCell, ok := s.live[path]
+	if !ok {
+		return "", false
+	}
+	body, ok := byCell[cellIndex]
+	return body, ok
+}
+
+// setLiveBody records a cell's pre-strip output, bounded by the same cap as the durable
+// form so a long-running server cannot accumulate unbounded output.
+func (s *Scheduler) setLiveBody(path string, cellIndex int, body string) {
+	if len(body) > s.cap {
+		body = body[:s.cap]
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.live[path] == nil {
+		s.live[path] = make(map[int]string)
+	}
+	s.live[path][cellIndex] = body
 }
 
 // State returns a snapshot of a run.

@@ -1,0 +1,17 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "noteserve-demo",
+      "runtimeExecutable": "go",
+      "runtimeArgs": [
+        "run",
+        "./cmd/noteserve",
+        "-addr",
+        "127.0.0.1:8099",
+        "/private/tmp/claude-501/-Users-paulmuston-ClaudeCode-notekit/ff31ea7f-cf25-4d4f-81f4-aa7d0aee6b3f/scratchpad/demo/serve-demo.md"
+      ],
+      "port": 8099
+    }
+  ]
+}

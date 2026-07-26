@@ -1,0 +1,21 @@
+{{define "page"}}<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{.Title}}</title>
+<link rel="stylesheet" href="{{.Base}}/assets/notekit.css">
+<script src="{{.Base}}/assets/htmx.min.js" defer></script>
+<script src="{{.Base}}/assets/notekit.js" defer></script>
+</head>
+<body>
+<main>
+  <h1 class="nk-title">{{.Title}}</h1>
+  <p class="nk-path">{{.Path}}</p>
+
+  {{template "prose" .Preamble}}
+
+  {{range .Cells}}{{template "cell" .}}{{end}}
+</main>
+</body>
+</html>{{end}}

@@ -236,3 +236,52 @@ func TestLine(t *testing.T) {
 		t.Errorf("clamped line = %d, want %d", got, want)
 	}
 }
+
+func TestProseSpans(t *testing.T) {
+	src := front +
+		"Opening prose.\n\n" +
+		"## First\n\nBefore the fence.\n\n```sh\na\n```\n\n```output\nr\n```\n\nAfter the result.\n\n" +
+		"## Second\n\n```sh\nb\n```\n"
+	n := mustParse(t, src)
+	b := n.Bytes()
+
+	// The leading newline is the blank line separating front matter from content. It
+	// is body content, preserved byte-for-byte like everything else, so the preamble
+	// span includes it.
+	if got := string(n.Preamble().In(b)); got != "\nOpening prose.\n\n" {
+		t.Errorf("Preamble = %q", got)
+	}
+
+	first := n.Cells()[0]
+	if got := string(first.ProseBefore().In(b)); got != "\nBefore the fence.\n\n" {
+		t.Errorf("ProseBefore = %q", got)
+	}
+	if got := string(first.ProseAfter().In(b)); got != "\nAfter the result.\n\n" {
+		t.Errorf("ProseAfter = %q", got)
+	}
+
+	second := n.Cells()[1]
+	if got := string(second.ProseBefore().In(b)); got != "\n" {
+		t.Errorf("second ProseBefore = %q", got)
+	}
+	if got := string(second.ProseAfter().In(b)); got != "" {
+		t.Errorf("second ProseAfter = %q, want empty", got)
+	}
+}
+
+func TestProseSpansNoCells(t *testing.T) {
+	src := front + "Just prose.\n"
+	n := mustParse(t, src)
+	if got := string(n.Preamble().In(n.Bytes())); got != "\nJust prose.\n" {
+		t.Errorf("Preamble = %q", got)
+	}
+}
+
+func TestProseAfterUnclosedFence(t *testing.T) {
+	// An unclosed fence runs to end of file, so there is nothing after it to edit.
+	n := mustParse(t, front+"## H\n\n```sh\nno close\n")
+	c := n.Cells()[0]
+	if got := c.ProseAfter(); !got.Empty() {
+		t.Errorf("ProseAfter = %v, want empty", got)
+	}
+}

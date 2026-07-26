@@ -1,0 +1,24 @@
+{{define "cell"}}
+<section class="nk-cell" id="cell-{{.Index}}">
+  <div class="nk-cell-head">
+    <h2>{{if .Heading}}{{.Heading}}{{else}}<em>(untitled)</em>{{end}}</h2>
+    <span class="nk-cell-meta">{{.Lang}}{{if .ID}} · {{.ID}}{{end}}</span>
+    {{if .Runnable}}
+    <button class="nk-btn"
+            hx-post="{{.Base}}/cells/{{.Index}}/run"
+            hx-target="#result-{{.Index}}"
+            hx-swap="innerHTML">Run</button>
+    {{else}}
+    <button class="nk-btn" disabled title="{{.NotRunnable}}">Run</button>
+    {{end}}
+  </div>
+
+  {{template "prose" .ProseBefore}}
+
+  <pre class="nk-source">{{.Source}}</pre>
+
+  <div id="result-{{.Index}}" class="nk-result">{{template "result" .Result}}</div>
+
+  {{template "prose" .ProseAfter}}
+</section>
+{{end}}

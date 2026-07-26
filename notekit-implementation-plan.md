@@ -5,8 +5,9 @@
 > milestone list glosses over, and lists the spec questions each stage will force.
 > Not normative: the three specs govern. This document is disposable once M3 lands.
 
-Status: draft · **M0 and M1 complete** — Stage 0, `meta`, `doc`, the conformance corpus,
-`notefmt`, plus `exec`, `kind`, `run` and the `noterun` demo. M2 (`serve`) is next.
+Status: draft · **M0, M1 and M2 complete.** Only M3 (clinote v2) remains, and it is a
+consumer rather than kit work. Every spec question is resolved except §8.7, the priortool
+sidecar verification, which needs a sidecar-producing tool to matter.
 
 ---
 
@@ -259,7 +260,7 @@ Design notes worth carrying into M2:
 - `Scheduler` takes an injectable clock and id generator for the same reason the corpus
   does — result metadata carries a timestamp, and a sidecar run may assign an id.
 
-## 5. M2 — `serve`
+## 5. M2 — `serve` — ✅ COMPLETE
 
 Echo handlers plus HTMX templates, all assets `go:embed`-ed, no CDN, no frontend build
 step.
@@ -272,8 +273,33 @@ step.
   prose-range splice built in M0b.
 - Components, not an application: each tool composes its own `main` around them.
 
-**Gate:** full HTMX loop against the echo executor. Verify the rendering contract's §5.4
-rule explicitly — the live view may be prettier, never *fuller* than what persisted.
+**Gate:** ✅ met, and verified in a real browser rather than only by assertion — clicking
+Run showed the spinner, then the result with live colour and provenance; the csv cell
+rendered as a sortable table with server-rendered rows.
+
+Design notes:
+
+- **The live renderer takes a durable body, not an executor payload.** A server renders a
+  notebook read from disk far more often than a fresh run, so if the payload were the
+  input every kind would need two code paths. Freshness is expressed by *which* body the
+  caller passes: `Scheduler.LiveBody` for a result this process produced, which still
+  carries ANSI, or the persisted body, which does not. One renderer, and ANSI conversion
+  is a no-op on already-stripped text.
+- **Colour is in-memory only, and dies with the process.** That is the contract, not a
+  limitation: the durable form is the plain form (harvest F12), so a restart renders
+  without colour. `TestColourGoneAfterRestart` asserts it, because "prettier, never
+  fuller" is easy to violate by quietly persisting the pretty version.
+- **Kinds are looked up by durable `format` value**, not by kind name, because that is
+  what a notebook on disk carries. `Kind.Formats` makes the reverse mapping explicit, and
+  `text` claims both `""` and `"text"` since absent and `text` mean the same thing (§6).
+- **Prose references are symbolic** (`preamble`, `2-before`, `2-after`), never byte
+  offsets from the client. A stale page holding byte offsets would splice into whatever
+  now occupies them — and results move on every run. Recomputing from the current parse
+  means a stale reference addresses the wrong *region* at worst, never the middle of a
+  fence.
+- **`serve` never caches a parse.** A run rewrites the file, so a cached parse is stale
+  the moment anything runs. The file is the artifact; reading it is the honest way to
+  know what it says.
 
 ## 6. M3 — clinote v2
 
@@ -455,7 +481,6 @@ depends on from M0 onward.
 6. **M0d — `notefmt`** (§3.4) — next, and the last of M0. Parse, list cells, check
    round-trip, report orphans and stale sidecars via `ClassifySidecars`.
 
-Still open before the stages that need them: §8.3 (stranded sidecars, before M2), §8.7
-(priortool verification, after M3). Both remaining items are the two that genuinely
-cannot be settled from the specs alone — §8.3 needs a lifecycle decision, §8.7 needs
-the priortool source.
+Still open: only §8.7, the priortool sidecar verification. priortool is at `../priortool`; the
+check needs a sidecar-producing tool to matter, so it belongs with the first graph tool
+rather than with M3.

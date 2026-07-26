@@ -26,10 +26,62 @@ func TestNewRegistryHoldsCoreKinds(t *testing.T) {
 		if k.Durable == nil {
 			t.Errorf("%q has no durable writer", name)
 		}
-		// The live half arrives with M2; nil is correct now and always legitimate.
-		if k.Live != nil {
-			t.Errorf("%q has a live renderer before M2", name)
+		// Both core kinds render live as of M2.
+		if k.Live == nil {
+			t.Errorf("%q has no live renderer", name)
 		}
+		if len(k.Formats) == 0 {
+			t.Errorf("%q claims no durable format values, so a persisted result "+
+				"could not be routed back to it", name)
+		}
+	}
+}
+
+func TestLookupFormat(t *testing.T) {
+	r := NewRegistry()
+	tests := []struct {
+		format string
+		want   string
+		ok     bool
+	}{
+		// Absent and "text" mean the same thing (§6), so text claims both.
+		{format: "", want: Text, ok: true},
+		{format: Text, want: Text, ok: true},
+		{format: CSV, want: Table, ok: true},
+		{format: JSONL, want: Table, ok: true},
+		{format: "graph", ok: false},
+		{format: "tsv", ok: false},
+	}
+	for _, tt := range tests {
+		t.Run("format="+tt.format, func(t *testing.T) {
+			k, ok := r.LookupFormat(tt.format)
+			if ok != tt.ok {
+				t.Fatalf("ok = %v, want %v", ok, tt.ok)
+			}
+			if ok && k.Name != tt.want {
+				t.Errorf("kind = %q, want %q", k.Name, tt.want)
+			}
+		})
+	}
+}
+
+// TestReplacingAKindReleasesItsFormats: a replacement that claims fewer formats must not
+// leave the old claims dangling, or a persisted result would route to a kind that no
+// longer handles it.
+func TestReplacingAKindReleasesItsFormats(t *testing.T) {
+	r := NewRegistry()
+	if _, ok := r.LookupFormat(JSONL); !ok {
+		t.Fatal("jsonl should be claimed initially")
+	}
+	err := r.Register(Kind{Name: Table, Formats: []string{CSV}, Durable: durableTable})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := r.LookupFormat(JSONL); ok {
+		t.Error("jsonl is still claimed after a replacement that dropped it")
+	}
+	if _, ok := r.LookupFormat(CSV); !ok {
+		t.Error("csv should still be claimed")
 	}
 }
 

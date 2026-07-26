@@ -4,10 +4,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Repository state
 
-Go module `github.com/pmuston/notekit` on Go 1.25.4. **M0 and M1 are complete**: `meta`,
-`doc`, the conformance corpus, `notefmt`, plus `exec`, `kind`, `run` and the `noterun`
-demo. Only `serve` is still a doc-comment skeleton — M2 is next. The specs are the
-authority for everything that gets built:
+Go module `github.com/pmuston/notekit` on Go 1.25.4. **The whole kit is built** — M0, M1
+and M2: `meta`, `doc`, `exec`, `kind`, `run`, `serve`, the conformance corpus, and three
+binaries (`notefmt`, `noterun`, `noteserve`). M3 is clinote v2, a *consumer* rather than
+kit work. The specs are the authority for everything that gets built:
 
 | File | Owns |
 |---|---|
@@ -113,12 +113,13 @@ registration + `main`. Target surface is Go/Echo/HTMX only.
 notekit/
   cmd/notefmt/    the M0 linter: check, list, sidecars
   cmd/noterun/    the M1 demo: the full async loop, no server
+  cmd/noteserve/  the M2 demo: the full HTMX loop in a browser
   doc/            document model: parse, cells, slugs, byte-range splice, result writers
   meta/           info-string metadata grammar: parse + canonical serialise
   run/            run scheduler: async execution, capture limits, splice, atomic save
   exec/           executor and session contracts; exec/echoexec is the reference impl
   kind/           result-kind registry: durable writers now, live renderers at M2
-  serve/          Echo handlers + HTMX templates + go:embed assets (not yet built)
+  serve/          Echo handlers + HTMX templates + go:embed assets
 ```
 
 Three architectural decisions drive almost every implementation choice:
@@ -211,7 +212,19 @@ Further invariants worth internalising before touching `run` or `exec`:
   + 1), for `output` and `error` alike.
 - **Live may be prettier, never fuller.** ANSI colour, sortable tables, and graph
   interactivity exist only in the browser and must degrade to nothing; the durable
-  form stands alone on GitHub.
+  form stands alone on GitHub. Concretely: colour lives in `Scheduler.LiveBody`,
+  in memory only, and dies with the process — a restart renders without it, and
+  `TestColourGoneAfterRestart` guards that. Never persist the pretty version.
+- **Live renderers take a *durable body*, not an executor payload.** A server renders
+  from disk far more often than from a fresh run, so the payload would force two code
+  paths per kind. ANSI conversion is a no-op on already-stripped text, which is what
+  makes one renderer serve both.
+- **Kinds are looked up by durable `format` value** (`Kind.Formats`, `LookupFormat`),
+  because a notebook on disk carries a `format`, not a kind name. `text` claims both
+  `""` and `"text"`.
+- **Prose edits are addressed symbolically** — `preamble`, `2-before`, `2-after` — and
+  never by byte offsets from the client. A stale page's offsets would splice into
+  whatever now occupies them, and results move on every run.
 - Executors declare whether they emit `csv` or `jsonl`; the kit does **not**
   transcode between them.
 
@@ -275,6 +288,7 @@ make lint          # go vet + gofmt check
 make fuzz          # all six targets, 30s each; FUZZTIME=2m for longer
 make race          # go test -race ./... — the scheduler is concurrent
 make check-corpus  # lint the acceptance corpus with notefmt itself
+make vendor        # refresh HTMX; then update serve/assets/VENDOR.md and read the diff
 go test ./doc -run TestResultPosition
 ```
 

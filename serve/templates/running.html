@@ -1,0 +1,10 @@
+{{define "running"}}
+<div class="nk-running"
+     hx-get="{{.Base}}/runs/{{.RunID}}"
+     hx-trigger="load delay:{{.PollMS}}ms"
+     hx-target="#result-{{.Index}}"
+     hx-swap="innerHTML">
+  <span class="nk-spinner" role="status" aria-label="running"></span>
+  {{.State}}…
+</div>
+{{end}}

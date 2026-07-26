@@ -1,0 +1,17 @@
+{{define "result"}}
+  {{- if .Empty -}}
+  {{- else if .Sidecar -}}
+    <figure class="nk-sidecar">
+      <img src="{{.Base}}/sidecar/{{.SidecarName}}" alt="{{.Alt}}">
+      <figcaption class="nk-result-meta">{{.Meta}}</figcaption>
+    </figure>
+  {{- else -}}
+    {{.HTML}}
+    {{- if or .Meta .Truncated}}
+    <p class="nk-result-meta">
+      {{- if .Truncated}}<span class="nk-truncated">truncated</span> · {{end -}}
+      {{.Meta}}
+    </p>
+    {{- end}}
+  {{- end}}
+{{end}}

@@ -125,6 +125,7 @@ func (s *Scheduler) persist(on *openNotebook, index int, result exec.Result, exe
 			// result to record.
 			return 0, false, fmt.Errorf("run: executing cell %q: %w", cell.HeadingText, execErr)
 		}
+		s.setLiveBody(on.path, index, domain.Message)
 		body, truncated := doc.Truncate(domain.Message, s.cap)
 		block := doc.ResultBlock{
 			Form:      doc.ResultError,
@@ -160,6 +161,7 @@ func (s *Scheduler) persist(on *openNotebook, index int, result exec.Result, exe
 	}
 
 	if durable.Inline != nil {
+		s.setLiveBody(on.path, index, durable.Inline.Body)
 		body, truncated := doc.Truncate(durable.Inline.Body, s.cap)
 		block := doc.ResultBlock{
 			Form:      doc.ResultOutput,

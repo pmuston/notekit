@@ -46,21 +46,27 @@ type Kind struct {
 	// kinds. It is what an executor puts in [exec.Result.Kind].
 	Name string
 
+	// Formats lists the durable `format` values this kind renders live. It is what
+	// lets a server go from a persisted result back to a renderer, since a notebook
+	// on disk carries a `format`, not a kind name.
+	//
+	// The empty string is a legitimate entry, and is how `text` claims a fence with
+	// no `format` key — absent and "text" mean the same thing (§6). A sidecar-only
+	// kind lists nothing.
+	Formats []string
+
 	// Durable renders a payload into its durable form. Required: a kind without one
 	// is inadmissible under the two-forms rule.
 	Durable DurableFunc
 
-	// Live renders a payload for the browser. Nil until M2; a nil Live means the
-	// kind persists correctly but has no richer live view than its durable form,
-	// which is always a legitimate position.
+	// Live renders a result for the browser. A nil Live means the kind persists
+	// correctly but has no richer live view than its durable form, which is always a
+	// legitimate position.
 	Live LiveFunc
 }
 
 // DurableFunc turns an executor's payload into what persists.
 type DurableFunc func(payload any) (Durable, error)
-
-// LiveFunc turns an executor's payload into HTML for the browser. Reserved for M2.
-type LiveFunc func(payload any) (string, error)
 
 // Durable is a kind's durable form: exactly one of Inline or Sidecar.
 //
@@ -144,23 +150,37 @@ func (d Durable) Validate() error {
 // It is a value rather than a package global so that a test, a tool, and a second tool
 // in the same binary cannot interfere with one another.
 type Registry struct {
-	kinds map[string]Kind
+	kinds    map[string]Kind
+	byFormat map[string]string // durable `format` value -> kind name
 }
 
 // NewRegistry returns a registry holding the core kinds (§2 of the rendering contract),
 // which every conforming tool must support.
 func NewRegistry() *Registry {
-	r := &Registry{kinds: make(map[string]Kind)}
+	r := NewEmptyRegistry()
 	// Registration cannot fail for these: the names are distinct and non-empty.
-	_ = r.Register(Kind{Name: Text, Durable: durableText})
-	_ = r.Register(Kind{Name: Table, Durable: durableTable})
+	_ = r.Register(Kind{
+		Name:    Text,
+		Formats: []string{"", Text},
+		Durable: durableText,
+		Live:    liveText,
+	})
+	_ = r.Register(Kind{
+		Name:    Table,
+		Formats: []string{CSV, JSONL},
+		Durable: durableTable,
+		Live:    liveTable,
+	})
 	return r
 }
 
 // NewEmptyRegistry returns a registry with no kinds, for tests that want to assert
 // what happens when a kind is missing.
 func NewEmptyRegistry() *Registry {
-	return &Registry{kinds: make(map[string]Kind)}
+	return &Registry{
+		kinds:    make(map[string]Kind),
+		byFormat: make(map[string]string),
+	}
 }
 
 // Register adds a kind, replacing any kind of the same name.
@@ -175,8 +195,32 @@ func (r *Registry) Register(k Kind) error {
 	if k.Durable == nil {
 		return fmt.Errorf("kind %q: no durable writer, so the kind is inadmissible", k.Name)
 	}
+	// Replacing a kind must not leave its old format claims pointing at it.
+	if prev, ok := r.kinds[k.Name]; ok {
+		for _, f := range prev.Formats {
+			if r.byFormat[f] == k.Name {
+				delete(r.byFormat, f)
+			}
+		}
+	}
 	r.kinds[k.Name] = k
+	for _, f := range k.Formats {
+		r.byFormat[f] = k.Name
+	}
 	return nil
+}
+
+// LookupFormat returns the kind that renders a durable `format` value.
+//
+// This is the reverse of registration and the lookup a server needs: a result read from
+// a notebook carries `format=csv`, not `kind=table`.
+func (r *Registry) LookupFormat(format string) (Kind, bool) {
+	name, ok := r.byFormat[format]
+	if !ok {
+		return Kind{}, false
+	}
+	k, ok := r.kinds[name]
+	return k, ok
 }
 
 // Lookup returns the named kind.
