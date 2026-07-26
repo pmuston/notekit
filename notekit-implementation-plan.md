@@ -5,9 +5,10 @@
 > milestone list glosses over, and lists the spec questions each stage will force.
 > Not normative: the three specs govern. This document is disposable once M3 lands.
 
-Status: draft · **M0–M3 complete, at functional v1 parity.** Every spec question is
-resolved except §8.7, the priortool sidecar verification, which needs a sidecar-producing
-tool to matter. This document is now disposable per its own preamble; the specs govern.
+Status: draft · **M0–M3 complete, at functional v1 parity, and every spec question
+resolved.** No placeholders remain in any spec. This document is now disposable per its own
+preamble; the specs govern. The frontier is validation gate 4: a second, non-shell consumer
+to test the abstraction against a non-shell domain.
 
 ---
 
@@ -494,9 +495,9 @@ silently"; the first is probably right and needs §8.1 wording.
 own example separated them with spaces alone — and §9's grammar is comma-separated. The
 two could not both be right. Resolved in favour of commas: one grammar means one parser
 (`meta.Parse` on `"result {" + attrs + "}"`, no extra code) and one canonical writer,
-and the comment is invisible in rendered output so the punctuation costs nothing. The
-`VERIFY AGAINST PRIORTOOL` pass should confirm or overturn this, since it is the section
-still unverified.
+and the comment is invisible in rendered output so the punctuation costs nothing. The priortool
+verification (§8.7) has since confirmed the surrounding section without disturbing this
+choice.
 
 Also corrected while implementing: the id used as an example throughout the specs,
 `a7f3k2p9`, is not valid base32 — it contains `9`, and §5.1's alphabet is `[a-z2-7]`.
@@ -534,14 +535,48 @@ A related detail settled while implementing: `\` may escape only `"` or `\`, and
 other escape is malformed. That keeps escaping a bijection, without which decode and
 re-encode cannot agree byte for byte. Recorded in §9.
 
-### 8.7 `VERIFY AGAINST PRIORTOOL` (§8) — not on the critical path
+### 8.7 `VERIFY AGAINST PRIORTOOL` (§8) — ✅ RESOLVED, format spec §8
 
-Sidecar directory name and payload JSON shape are still unverified against priortool.
-Note the timing: **no sidecar-producing tool exists until after M3** — the echo and
-shell executors produce only text. So `doc` must parse and bookkeep sidecar references
-from M0 (the corpus exercises them synthetically), but the priortool verification only
-gates the first graph tool. Do not let that defer the `id` mechanism, which the corpus
-depends on from M0 onward.
+Verified against the priortool *implementation* at `../priortool`, not just its spec, which is
+what harvest open question 3 asked for. Four findings:
+
+- **Directory name confirmed.** priortool's `sidecar.AssetsDir` derives
+  `<stem>.assets` exactly as §8 says.
+- **The payload rule was too thin, and is corrected.** §8 said the `.json` holds "the full
+  data payload". priortool persists one JSON per artifact set holding provenance, camera
+  state, per-node positions, *and* the result graph verbatim — because data alone would
+  lay out differently on re-render (harvest V4). The rendering contract already said "data
+  and node coordinates", so §8 alone had drifted from its sibling document. §8 now requires
+  whatever offline re-render needs, leaves the shape to the kind, and permits extra keys
+  (a priortool-class tool records staleness inputs there).
+- **Atomic artifact writes adopted.** priortool writes each file to a temp file and renames
+  "so a reader never sees a half-written artifact". notekit used plain `os.WriteFile`, so a
+  browser fetching an image mid-run would have received a truncated one. Now
+  `doc.WriteFileAtomic`, used for the notebook and for artifacts alike, so the three
+  hand-rolled copies that had accumulated cannot drift.
+- **The naming divergence is vindicated, not merely intended.** priortool names artifacts
+  `<cell-slug>.png` / `<cell-slug>.json`, so a heading rename orphans them — and it
+  therefore ships a manual *reattach* screen, described in its own source as "the fix for a
+  renamed heading, whose old artifacts no longer match any cell ID". §5's stored `id` is
+  what removes the need for that screen. The hazard §5 was written against is not
+  hypothetical: it is a shipped feature working around it.
+
+Timing note, retained because it explains why this waited: no sidecar-producing tool exists
+even now — the echo and shell executors produce only text — so this never gated M0–M3.
+`doc` parses and bookkeeps sidecar references from M0 with the corpus exercising them
+synthetically, and the first graph tool is what will exercise them for real.
+
+### 8.9 Slug alignment with priortool — ✅ RESOLVED, format spec §5.2
+
+Checked rather than assumed. priortool's slug algorithm is transcribed into
+`doc.TestSlugMatchesPriortool` as an oracle, and the two agree on every input tried,
+including the 60-character truncation and its re-trim. The implementations differ in shape
+— priortool writes a separator immediately and trims afterwards, notekit defers it until the
+next alphanumeric — so equivalence was worth demonstrating.
+
+One intended difference: priortool requires a non-empty slug, notekit permits an empty one,
+because a non-ASCII heading is valid CommonMark and the format must not reject a document
+over a naming concern. §8 falls back to `<id>.<ext>`, so nothing depends on it.
 
 ## 9. Risks
 
@@ -570,6 +605,6 @@ depends on from M0 onward.
 6. **M0d — `notefmt`** (§3.4) — next, and the last of M0. Parse, list cells, check
    round-trip, report orphans and stale sidecars via `ClassifySidecars`.
 
-Still open: only §8.7, the priortool sidecar verification. priortool is at `../priortool`; the
-check needs a sidecar-producing tool to matter, so it belongs with the first graph tool
-rather than with M3.
+Nothing is open. Every question §8 raised is resolved, and the two that needed the priortool
+source (§8.7 sidecars, §8.9 slugs) were settled against the implementation at
+`../priortool`.

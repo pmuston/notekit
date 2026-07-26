@@ -1,6 +1,9 @@
 package doc
 
 import (
+	"fmt"
+	"io/fs"
+	"os"
 	"path/filepath"
 	"strings"
 )
@@ -101,4 +104,49 @@ func ClassifySidecars(names []string, cells []*Cell) []Sidecar {
 		out = append(out, s)
 	}
 	return out
+}
+
+// WriteFileAtomic writes data to path via a temp file in the same directory, then
+// renames it into place.
+//
+// The file is the artifact, so a torn write is unacceptable — and this applies to sidecar
+// artifacts as much as to the notebook (§8). A reader must never see a half-written PNG,
+// which for a browser fetching an image mid-run is otherwise exactly what happens. Verified
+// against priortool, which reached the same conclusion for the same reason.
+//
+// An existing file's mode is preserved; otherwise perm applies. The temp file is removed
+// on any failure, so a failed write leaves nothing behind.
+func WriteFileAtomic(path string, data []byte, perm fs.FileMode) error {
+	dir := filepath.Dir(path)
+	tmp, err := os.CreateTemp(dir, ".notekit-*.tmp")
+	if err != nil {
+		return fmt.Errorf("notekit: creating a temp file in %s: %w", dir, err)
+	}
+	name := tmp.Name()
+	defer os.Remove(name) // a no-op once the rename succeeds
+
+	if _, err := tmp.Write(data); err != nil {
+		tmp.Close()
+		return fmt.Errorf("notekit: writing %s: %w", name, err)
+	}
+	if err := tmp.Sync(); err != nil {
+		tmp.Close()
+		return fmt.Errorf("notekit: syncing %s: %w", name, err)
+	}
+	if err := tmp.Close(); err != nil {
+		return fmt.Errorf("notekit: closing %s: %w", name, err)
+	}
+
+	// CreateTemp makes 0600, so the mode has to be set explicitly either way.
+	mode := perm
+	if info, statErr := os.Stat(path); statErr == nil {
+		mode = info.Mode().Perm()
+	}
+	if err := os.Chmod(name, mode); err != nil {
+		return fmt.Errorf("notekit: setting the mode on %s: %w", name, err)
+	}
+	if err := os.Rename(name, path); err != nil {
+		return fmt.Errorf("notekit: renaming %s over %s: %w", name, path, err)
+	}
+	return nil
 }

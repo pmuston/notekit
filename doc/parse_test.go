@@ -285,3 +285,80 @@ func TestProseAfterUnclosedFence(t *testing.T) {
 		t.Errorf("ProseAfter = %v, want empty", got)
 	}
 }
+
+// priortoolSlug is priortool's slug algorithm, transcribed verbatim from
+// ../priortool/internal/notebook/notebook.go as a reference oracle.
+//
+// It exists so that "notekit's slugs match priortool's" is a checked claim rather than an
+// impression from reading both. The two implementations differ in shape — priortool writes a
+// separator immediately and trims it afterwards, notekit defers it until the next
+// alphanumeric — so equivalence is worth demonstrating rather than assuming.
+func priortoolSlug(title string) string {
+	var b strings.Builder
+	prevHyphen := false
+	for _, r := range strings.ToLower(title) {
+		switch {
+		case (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9'):
+			b.WriteRune(r)
+			prevHyphen = false
+		case b.Len() > 0 && !prevHyphen:
+			b.WriteByte('-')
+			prevHyphen = true
+		}
+	}
+	s := strings.TrimRight(b.String(), "-")
+	if len(s) > 60 {
+		s = strings.TrimRight(s[:60], "-")
+	}
+	return s
+}
+
+// TestSlugMatchesPriortool closes format spec §5.2's optional-alignment note with evidence.
+//
+// Slug rules are cosmetic under notekit's identity scheme, so a divergence would cost only
+// filename aesthetics — but matching means a notebook migrated from priortool keeps the
+// filenames a reader recognises, for free.
+func TestSlugMatchesPriortool(t *testing.T) {
+	inputs := []string{
+		"", " ", "-", "---", "!!!",
+		"Disk usage", "Disk Usage By Directory",
+		"Disk usage: by top-level directory!",
+		"  ...Hello!!  ", "Top 5 tables (2026)",
+		"snake_case_name", "a   ---   b", "a-b", "a--b",
+		"日本語", "⚙️", "Café", "100%", "3.14",
+		"Module wiring for CIP_SUPPLY",
+		"MiXeD CaSe WiTh 123 Numbers",
+		"trailing dash -", "- leading dash",
+		strings.Repeat("ab", 40),
+		strings.Repeat("a", 59) + " tail",
+		strings.Repeat("a", 60) + "-more",
+		strings.Repeat("a", 61),
+		"a" + strings.Repeat(" ", 70) + "b",
+		strings.Repeat("x-", 40),
+	}
+	for _, in := range inputs {
+		got, want := Slug(in), priortoolSlug(in)
+		if got != want {
+			t.Errorf("Slug(%q) = %q, priortool gives %q", in, got, want)
+		}
+	}
+}
+
+// TestSlugDivergesFromPriortoolOnlyOnEmptiness records the one intended difference: priortool
+// requires a non-empty slug, notekit permits an empty one because a non-ASCII heading is
+// valid CommonMark and the format must not reject a document over a naming concern (§5.2).
+// §8 falls back to `<id>.<ext>` when the slug is empty, so nothing depends on it.
+func TestSlugDivergesFromPriortoolOnlyOnEmptiness(t *testing.T) {
+	for _, in := range []string{"日本語", "⚙️", "", "!!!"} {
+		if Slug(in) != "" {
+			t.Errorf("Slug(%q) = %q, want empty", in, Slug(in))
+		}
+		if priortoolSlug(in) != "" {
+			t.Errorf("the oracle disagrees for %q", in)
+		}
+	}
+	// And an empty slug still produces a usable artifact name.
+	if got := SidecarName("", "k3m7q2vf", "png"); got != "k3m7q2vf.png" {
+		t.Errorf("SidecarName with an empty slug = %q", got)
+	}
+}

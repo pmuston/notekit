@@ -178,31 +178,7 @@ func (s *Server) handleProsePut(c echo.Context) error {
 // save writes the notebook atomically, for the same reason package run does: the file is
 // the artifact, so a torn write is unacceptable.
 func (s *Server) save(out []byte) error {
-	dir := filepath.Dir(s.path)
-	tmp, err := os.CreateTemp(dir, ".notekit-*.tmp")
-	if err != nil {
-		return err
-	}
-	name := tmp.Name()
-	defer os.Remove(name)
-
-	if _, err := tmp.Write(out); err != nil {
-		tmp.Close()
-		return err
-	}
-	if err := tmp.Sync(); err != nil {
-		tmp.Close()
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		return err
-	}
-	if info, statErr := os.Stat(s.path); statErr == nil {
-		if err := os.Chmod(name, info.Mode().Perm()); err != nil {
-			return err
-		}
-	}
-	return os.Rename(name, s.path)
+	return doc.WriteFileAtomic(s.path, out, 0o644)
 }
 
 // handleSidecar serves an artifact from the notebook's sidecar directory.

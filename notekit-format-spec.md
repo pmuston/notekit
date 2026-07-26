@@ -21,9 +21,13 @@ Revised since first draft:
 - **Permitted writes (§10)** — the list is now grouped into writes a *run* makes and
   writes a *user* asks for, and gained the two that were missing: editing a source
   fence's body, and inserting or removing a whole section.
+- **Sidecar payload and atomic writes (§8)** — corrected against the priortool
+  implementation; see the note at the end of §8.
 
-One `VERIFY AGAINST PRIORTOOL` placeholder remains (sidecar directory name and payload
-shape, §8) — settle from priortool source before freezing.
+**No placeholders remain.** §8 was verified against the priortool implementation: the
+directory name is confirmed, the payload rule was too thin and is corrected, and atomic
+artifact writes are adopted. The `<slug>--<id>` naming is a deliberate divergence, and
+priortool's own manual reattach screen is the evidence for it.
 
 ---
 
@@ -206,10 +210,17 @@ cell with a duplicate heading is inserted, attaching artifacts to the wrong cell
 no error raised. Deriving identity from content rather than position is a requirement
 (harvest R7) that survives the move to slugs.
 
-> **OPTIONAL ALIGNMENT WITH PRIORTOOL** — priortool has its own slug normalisation. Under
-> this scheme slug rules are cosmetic, so a divergence costs only filename aesthetics
-> and is no longer a correctness concern; aligning is nice-to-have, not a gate.
-> (This replaces harvest open question 4, which assumed slugs carried identity.)
+> **Aligned with priortool, and checked.** The rules above match priortool's implementation
+> exactly; `doc.TestSlugMatchesPriortool` carries priortool's algorithm as an oracle and
+> asserts the two agree, so this is a verified claim rather than an impression. Under this
+> scheme slug rules are cosmetic, so a divergence would have cost only filename
+> aesthetics — but matching means a notebook migrated from priortool keeps the filenames a
+> reader recognises, for free.
+>
+> One intended difference: priortool requires a non-empty slug, this spec permits an empty
+> one, because a non-ASCII heading is valid CommonMark and the format must not reject a
+> document over a naming concern. §8 falls back to `<id>.<ext>`, so nothing depends on it.
+> (This closes harvest open question 4, which assumed slugs carried identity.)
 
 ## 6. Result blocks: `output`
 
@@ -284,11 +295,20 @@ assigns it an `id` (§5.1) on the first such run.
 
 - Sidecar directory: `<notebook-stem>.assets/`, beside the notebook file.
 - Naming: `<slug>--<id>.<ext>` for the rendered artifact (e.g. `.png`, `.svg`) and
-  `<slug>--<id>.json` for the full data payload, persisted so the artifact can be
-  re-rendered offline with no live engine. The `id` is parsed back out by splitting on
-  the **last** `--`; when the slug is empty the name is `<id>.<ext>` with no separator.
-  The slug half is decoration for humans reading diffs and directory listings — every
-  lookup keys on the `id`.
+  `<slug>--<id>.json` for its payload. The `id` is parsed back out by splitting on the
+  **last** `--`; when the slug is empty the name is `<id>.<ext>` with no separator. The
+  slug half is decoration for humans reading diffs and directory listings — every lookup
+  keys on the `id`.
+- **The `.json` must hold everything an offline re-render needs**, which is more than the
+  result data: for a graph it is the data *and* the node coordinates and camera state,
+  because a figure reproduced from data alone would lay out differently (harvest V4).
+  The exact shape is the kind's business, not the format's — the rendering contract owns
+  it — and a tool may add whatever else it needs, in keeping with the format's
+  passthrough posture everywhere else. A priortool-class tool records its staleness inputs
+  there, which notekit core neither requires nor forbids (harvest D4).
+- **Both files are written atomically**: to a temp file in the sidecar directory, then
+  renamed into place. A reader must never see a half-written artifact — for a browser
+  fetching an image while a run is in flight, that is otherwise exactly what happens.
 - Durable reference in the notebook, written in the cell's result position (§4.2):
 
 ````markdown
@@ -347,11 +367,24 @@ asked to run, and would have been overwritten anyway had its name not changed. A
 belongs to a cell that no longer exists, no run touches it, and it is only ever reported.
 A tool must not conflate the two.
 
-> **VERIFY AGAINST PRIORTOOL** — the directory name and the payload JSON shape are
-> written from the priortool spec; check them against the priortool implementation and
-> adjust whichever diverged before freezing. The **naming convention** above is not in
-> scope for that check — `<slug>--<id>` is normative here and predates no priortool
-> equivalent, since priortool had no stored id.
+> **Verified against the priortool implementation** (harvest open question 3), not just its
+> spec. Three findings:
+>
+> - **Directory name confirmed.** priortool derives it exactly as above.
+> - **The payload rule above was too thin** and has been corrected. priortool persists one
+>   JSON per artifact set holding provenance, camera state, per-node positions, and the
+>   result graph verbatim. "The full data payload" — this spec's previous wording — would
+>   not reproduce the figure. The rendering contract already said "data and node
+>   coordinates", so it was §8 alone that had drifted from its sibling.
+> - **Atomic writes adopted** from priortool, which does this for the same reason.
+>
+> The **naming convention** is a deliberate divergence, and priortool is the evidence for
+> it. priortool names artifacts `<cell-slug>.png` / `<cell-slug>.json`, so a heading rename
+> orphans them — and it therefore ships a manual *reattach* screen described in its own
+> source as "the fix for a renamed heading, whose old artifacts no longer match any cell
+> ID". §5's stored `id` is what removes the need for that screen: here a rename renames
+> the files (§8.1). The hazard §5 was written against is not hypothetical; it is a
+> shipped feature working around it.
 
 ## 9. Info-string metadata grammar
 
@@ -472,7 +505,9 @@ The format ships with a golden-file corpus; a conforming implementation passes a
     yielding `<id>` alone, and a slug that itself contains `--`.
 12. Sidecar lifecycle: a run removing a superseded artifact of the cell it ran while
     leaving an orphan of a deleted cell untouched.
-13. Document edits (§10 d–f): a prose range replaced; a source body replaced, including
+13. Sidecar writes are atomic: a temp file in the sidecar directory renamed into place,
+    leaving nothing behind on failure.
+14. Document edits (§10 d–f): a prose range replaced; a source body replaced, including
     one that forces the fence wider; a section inserted at each boundary — before the
     first cell, between two cells, after the last, and into a notebook with none — and a
     section removed from each of those positions. Every case round-trips and leaves every

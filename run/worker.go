@@ -275,7 +275,9 @@ func (s *Scheduler) writeSidecar(on *openNotebook, index int, k kind.Kind, sc *k
 	var primary string
 	for _, f := range sc.Files {
 		name := doc.SidecarName(cell.Slug, id, f.Ext)
-		if err := os.WriteFile(filepath.Join(dir, name), f.Content, 0o644); err != nil {
+		// Atomically: a browser fetching an artifact mid-run must never receive a
+		// half-written file (§8).
+		if err := doc.WriteFileAtomic(filepath.Join(dir, name), f.Content, 0o644); err != nil {
 			return fmt.Errorf("run: writing %s: %w", name, err)
 		}
 		written[name] = true
@@ -360,36 +362,9 @@ func (s *Scheduler) save(on *openNotebook, out []byte) error {
 		return fmt.Errorf("run: spliced notebook no longer parses, refusing to save: %w", err)
 	}
 
-	dir := filepath.Dir(on.path)
-	tmp, err := os.CreateTemp(dir, ".notekit-*.tmp")
-	if err != nil {
-		return fmt.Errorf("run: creating temp file: %w", err)
+	if err := doc.WriteFileAtomic(on.path, out, 0o644); err != nil {
+		return fmt.Errorf("run: saving %s: %w", on.path, err)
 	}
-	tmpName := tmp.Name()
-	defer os.Remove(tmpName) // no-op once the rename succeeds
-
-	if _, err := tmp.Write(out); err != nil {
-		tmp.Close()
-		return fmt.Errorf("run: writing temp file: %w", err)
-	}
-	if err := tmp.Sync(); err != nil {
-		tmp.Close()
-		return fmt.Errorf("run: syncing temp file: %w", err)
-	}
-	if err := tmp.Close(); err != nil {
-		return fmt.Errorf("run: closing temp file: %w", err)
-	}
-
-	// Preserve the notebook's existing mode; CreateTemp makes 0600.
-	if info, statErr := os.Stat(on.path); statErr == nil {
-		if err := os.Chmod(tmpName, info.Mode().Perm()); err != nil {
-			return fmt.Errorf("run: setting mode on temp file: %w", err)
-		}
-	}
-	if err := os.Rename(tmpName, on.path); err != nil {
-		return fmt.Errorf("run: renaming temp file over %s: %w", on.path, err)
-	}
-
 	on.nb, on.src = nb, out
 	return nil
 }

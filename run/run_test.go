@@ -1327,3 +1327,72 @@ func TestSchedulerLang(t *testing.T) {
 		t.Error("Lang on an unopened notebook = nil error, want error")
 	}
 }
+
+// TestSidecarWritesAreAtomic: a reader must never see a half-written artifact. For a
+// browser fetching an image while a run is in flight that is otherwise exactly what
+// happens, which is why priortool does the same and why §8 now requires it.
+func TestSidecarWritesAreAtomic(t *testing.T) {
+	reg := kind.NewRegistry()
+	if err := reg.Register(fakeGraph()); err != nil {
+		t.Fatal(err)
+	}
+	h := newHarness(t, "## Wiring\n\n```echo {kind=graph}\nMATCH\n```\n", WithRegistry(reg))
+	dir := filepath.Join(filepath.Dir(h.path), "notes.assets")
+
+	// Poll the artifact directory while runs are in flight. Every file that exists must
+	// be complete — a temp file is never named as an artifact, and a rename is atomic.
+	stop := make(chan struct{})
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for {
+			select {
+			case <-stop:
+				return
+			default:
+			}
+			entries, err := os.ReadDir(dir)
+			if err != nil {
+				continue
+			}
+			for _, e := range entries {
+				name := e.Name()
+				if strings.HasPrefix(name, ".notekit-") {
+					continue // a temp file, not yet an artifact
+				}
+				b, err := os.ReadFile(filepath.Join(dir, name))
+				if err != nil {
+					continue
+				}
+				if len(b) == 0 {
+					t.Errorf("observed an empty artifact %s mid-run", name)
+					return
+				}
+				if strings.HasSuffix(name, ".png") && !strings.HasPrefix(string(b), "PNG:") {
+					t.Errorf("observed a partial artifact %s: %q", name, b)
+					return
+				}
+			}
+		}
+	}()
+
+	for i := 0; i < 8; i++ {
+		if r := h.runCell(0); r.State != Done {
+			t.Fatalf("run %d: %v (%v)", i, r.State, r.Err)
+		}
+	}
+	close(stop)
+	wg.Wait()
+
+	// No temp files are left behind.
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range entries {
+		if strings.HasPrefix(e.Name(), ".notekit-") {
+			t.Errorf("a temp file was left behind: %s", e.Name())
+		}
+	}
+}

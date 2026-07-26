@@ -39,15 +39,21 @@ rest on clinote alone.
 **⚠ in the harvest means inferred from incomplete records** — confirm before relying
 on it, don't inherit it silently.
 
-### Unresolved placeholders
+### Placeholders: none remain
 
-One remains: **format spec §8** — sidecar directory name and payload JSON shape,
-written from the priortool *spec* with the as-built state unconfirmed (harvest open
-question 3). Verify against the priortool implementation and adjust whichever diverged.
+All four harvest open questions are resolved and their resolutions are in the specs:
+the info-string two-axis grammar (1); first-class `error` blocks with interleaved
+stdout/stderr (2); the sidecar convention, verified against the priortool *implementation*
+at `../priortool` (3); and slug rules, checked against priortool's algorithm by a differential
+test (4).
 
-Harvest open questions 1, 2, and 4 are resolved and their resolutions are in the specs
-(info-string two-axis grammar; first-class `error` blocks with interleaved
-stdout/stderr; cell identity — see below).
+**The sibling tools are readable, and worth reading before reinventing.** `../clinote` is
+v1, whose pty runner is the proven prior art the shell executor extracts.
+`../priortool` is implemented, and settled §8: its directory name confirmed ours, its payload
+JSON showed ours was too thin (offline re-render needs layout, not just data), and its
+atomic artifact writes exposed a gap. Its manual *reattach* screen — "the fix for a renamed
+heading, whose old artifacts no longer match any cell ID" — is the concrete evidence for
+why §5 stores an `id`: that screen is a workaround for the hazard notekit eliminates.
 
 ### Cell identity supersedes harvest D1
 
@@ -85,8 +91,9 @@ Two knock-on rules that are easy to miss:
   to §9's reserved-keys-first canonical ordering, which governs tool-written result
   blocks only.
 
-Because slug rules are now cosmetic, aligning them with priortool is nice-to-have rather
-than a correctness gate — which is why §5's placeholder is gone while §8's remains.
+Slug rules are cosmetic under this scheme, and they nonetheless match priortool's exactly —
+`doc.TestSlugMatchesPriortool` holds priortool's algorithm as an oracle and asserts agreement,
+so a notebook migrated from priortool keeps the filenames a reader recognises.
 
 Harvest §3 is a dated record and was left untouched; this supersedes D1 rather than
 rewriting it.
@@ -203,6 +210,13 @@ Further invariants worth internalising before touching `run` or `exec`:
   *removes* files carrying the id of the cell it just ran that it did not itself write —
   that cell's own dead artifacts. An orphan, whose id matches no cell at all, is only
   ever *reported*. Never conflate them.
+- **Every durable write goes through `doc.WriteFileAtomic`** — the notebook and sidecar
+  artifacts alike. A reader must never see a half-written file; for a browser fetching an
+  image mid-run that is otherwise exactly what happens. Three hand-rolled copies had
+  accumulated before this was centralised, so add call sites rather than new copies.
+- **A sidecar `.json` must carry what an offline re-render needs**, not merely the result
+  data — for a graph that means node coordinates and camera state too (§8, harvest V4).
+  Data alone lays out differently.
 - **An unclosed source fence has no result position**, so persisting its result is
   refused rather than written (format spec §4.2). The fence extends to end of file;
   appending there lands inside the fence body and corrupts the cell, and closing it

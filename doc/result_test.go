@@ -1,6 +1,8 @@
 package doc
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -432,5 +434,75 @@ func TestResultBlockRejectsBadExtraKeys(t *testing.T) {
 				t.Error("SidecarRef.String() = nil error, want error")
 			}
 		})
+	}
+}
+
+func TestWriteFileAtomic(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "artifact.png")
+
+	if err := WriteFileAtomic(path, []byte("first"), 0o644); err != nil {
+		t.Fatalf("WriteFileAtomic: %v", err)
+	}
+	if b, err := os.ReadFile(path); err != nil || string(b) != "first" {
+		t.Fatalf("read = %q, %v", b, err)
+	}
+
+	// Overwriting preserves the existing mode rather than resetting it to the temp
+	// file's 0600.
+	if err := os.Chmod(path, 0o640); err != nil {
+		t.Fatal(err)
+	}
+	if err := WriteFileAtomic(path, []byte("second"), 0o644); err != nil {
+		t.Fatalf("WriteFileAtomic: %v", err)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := info.Mode().Perm(); got != 0o640 {
+		t.Errorf("mode = %o, want 640", got)
+	}
+	if b, _ := os.ReadFile(path); string(b) != "second" {
+		t.Errorf("content = %q", b)
+	}
+
+	// No temp files are left behind.
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 {
+		var names []string
+		for _, e := range entries {
+			names = append(names, e.Name())
+		}
+		t.Errorf("directory holds %v, want only the artifact", names)
+	}
+}
+
+func TestWriteFileAtomicFailsCleanly(t *testing.T) {
+	// An unwritable directory: nothing is created, and no temp file survives.
+	dir := t.TempDir()
+	if err := os.Chmod(dir, 0o500); err != nil {
+		t.Skipf("cannot make the directory read-only: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(dir, 0o700) })
+	if f, err := os.CreateTemp(dir, "probe-*"); err == nil {
+		f.Close()
+		os.Remove(f.Name())
+		t.Skip("the directory is still writable on this platform")
+	}
+
+	if err := WriteFileAtomic(filepath.Join(dir, "x.png"), []byte("data"), 0o644); err == nil {
+		t.Error("want an error for an unwritable directory")
+	}
+	_ = os.Chmod(dir, 0o700)
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 0 {
+		t.Errorf("a failed write left %d files behind", len(entries))
 	}
 }
