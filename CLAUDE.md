@@ -453,33 +453,58 @@ with no runtime file dependencies beyond the notebook and its sidecar directory.
 Per the user's global preferences: if SQLite is needed (e.g. the sqlnote tool), use
 `modernc.org/sqlite`, not `github.com/mattn/go-sqlite3`.
 
-## Specified but NOT implemented
+## Cell reordering
 
-**Format spec §10 (h) and §10.1, and the kit spec's addressing note, describe cell
-reordering. No code implements any of it.** `doc` has no move operation, `serve` has no
-route, and no document fingerprint exists. The amendment was written first, on purpose, so
-the decisions could be reviewed before anything was built — do not read the spec and assume
-the API is there.
+Implemented across `doc`, `serve` and both tools: format spec §10 (h), §10.1, §11.15.
+`doc.MoveCellUp`/`MoveCellDown`, `POST /cells/:index/move-{up,down}`, and ↑/↓ buttons
+disabled at the ends. Points that cost something to learn:
 
-What the amendment settles, if it gets built:
+- **The unit is the section**, so prose and results travel with the cell, and the bytes
+  move verbatim — never through the cell writer, which normalises by design.
+- **A slot keeps its separator; only the contents swap.** A blank line between sections
+  falls inside the *earlier* section's span, so moving spans wholesale drags separators
+  about. Treating the separator as the position's rather than the cell's is what makes a
+  move symmetric — away and back is byte-identical. One trap: content taken from the end
+  of the file has no trailing newline, so appending the destination's separator to it
+  yields one line ending instead of a blank line and the seam quietly loses it. `endLine`
+  exists for that.
+- **A move is refused when either section is not self-contained.** An unclosed fence runs
+  to end of file, so relocating it makes every following heading its body. `movable`
+  names the source-fence case for a clear message, and `trySwap` then **verifies its own
+  edits** — applies, re-parses, checks the same cells are present — because `FuzzDocMoveCell`
+  found a second shape within minutes and there is no reason to think it is the last.
+  Verifying beats enumerating here.
+- **Reversibility is *reversible-or-refused*, not universal.** The fuzzer disproved the
+  stronger claim I first wrote into §10.1: a section holding an unclosed fence changes
+  what the bytes after it mean. `TestMoveIsReversible` pins the property for realistic
+  shapes; the fuzz target asserts only preservation-or-refusal.
+- **A no-op writes nothing** — first cell up, last down, one-cell notebook. A spurious
+  rewrite is visible to a reader, a diff and any watcher.
 
-- The unit is a **section** (§4.1), so prose and results travel with the cell, and the
-  bytes move **verbatim** — never through the cell writer, which normalises by design.
-- Identity needs nothing new. `id` is stored and non-positional (§5.1) so a move is inert
-  for sidecars, and §11.9 already required that of a reorder. Under superseded D1 this
-  write would have silently reattached artifacts to the wrong cells.
-- §10.1 states the seam rule for insert, remove *and* move together, and admits what is
-  not guaranteed: insert-then-remove is cell-identical, not byte-identical, because
-  insertion normalises a seam and removal does not. Round-trip identity is untouched —
-  that governs an unedited file.
-- A no-op move (first cell up, last down, one-cell notebook) **must write nothing.**
-- Cells are addressed by index and reordering makes that unsafe for a stale page.
-  Addressing by `id` cannot fix it: `id` is lazy and *neither shipping tool produces
-  sidecars, so no cell in either has one*. The recorded answer is a **document
-  fingerprint** on mutating requests, which also covers insert and delete.
-- Document order is execution order, so a move changes what run-all does. D4 forbids
-  staleness tracking, so nothing may mark the now-misordered results. Re-running is the
-  user's call.
+### The fingerprint, and why `id` could not do this job
+
+Cells are addressed by index; prose is addressed symbolically because stale offsets splice
+into whatever now occupies them. Reordering shifts indices while changing nothing a reader
+notices, so a page open in another tab could run, edit or delete a cell other than the one
+it shows.
+
+`id` cannot fix it: assignment is lazy, only for cells producing sidecars (§5.1), and
+**neither shipping tool produces any**, so no cell in either has an `id` at all. Eager
+assignment would defeat the laziness that keeps hand-authored fences clean.
+
+So `serve` sends `X-Notekit-Doc` — a hash of the *structure* (cell order and source
+fences), seeded into the page as `data-nk-doc` because a full page load cannot read
+response headers. `notekit.js` echoes it on every request and updates it from every
+response. Guarded routes: run, source PUT, delete, move.
+
+Two deliberate choices: it covers structure and **not** the whole file, so a run — which
+moves nothing — cannot invalidate a page (`TestFingerprintIgnoresRuns`); and a request
+with **no** fingerprint is allowed through, so curl and the tests stay usable, since a
+client with no rendered page cannot be stale.
+
+**A move never re-runs anything.** Document order is execution order, so reordering changes
+what run-all does, and D4 forbids staleness tracking — so nothing marks the now-misordered
+results. Re-running is the user's call.
 
 ## Scope discipline
 

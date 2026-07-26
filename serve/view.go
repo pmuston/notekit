@@ -21,6 +21,11 @@ type pageView struct {
 	Preamble proseView
 	Cells    []cellView
 	AddCell  newCellView
+
+	// Fingerprint is the structure this page describes. It goes into the HTML rather than
+	// only a header because a full page load is not an HTMX request, so the client has no
+	// other way to learn its starting value.
+	Fingerprint string
 }
 
 // cellView is one cell's template data.
@@ -43,6 +48,11 @@ type cellView struct {
 
 	// Editing switches the source fence for a textarea.
 	Editing bool
+
+	// First and Last disable the move buttons at the ends, where a move is a no-op that
+	// §10 h says must not write the file.
+	First bool
+	Last  bool
 }
 
 // resultView is a rendered result.
@@ -114,13 +124,20 @@ func (s *Server) buildPage() (pageView, error) {
 	}
 
 	page := pageView{
-		Base:     s.base,
-		Title:    title,
-		Path:     s.path,
-		Preamble: s.proseViewFor(src, "preamble", nb.Preamble(), false),
+		Base:        s.base,
+		Title:       title,
+		Path:        s.path,
+		Preamble:    s.proseViewFor(src, "preamble", nb.Preamble(), false),
+		Fingerprint: fingerprint(nb, src),
 	}
-	for i, c := range nb.Cells() {
-		page.Cells = append(page.Cells, s.buildCell(src, i, c, false))
+	cells := nb.Cells()
+	for i, c := range cells {
+		v := s.buildCell(src, i, c, false)
+		// A disabled button says "this cell cannot move" where a hidden one would leave
+		// the user wondering, which is the same reasoning as Runnable above.
+		v.First = i == 0
+		v.Last = i == len(cells)-1
+		page.Cells = append(page.Cells, v)
 	}
 
 	page.AddCell = newCellView{Base: s.base, Lang: s.lang, Count: len(page.Cells)}

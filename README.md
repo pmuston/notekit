@@ -133,6 +133,11 @@ to run or write. Nothing is ever silently repaired.
 Results are volatile: a run replaces the whole of a cell's result region. There is no
 freeze, no staleness tracking, no protection.
 
+Cells can be reordered with the ↑/↓ buttons. The unit is the whole section, so a cell's
+prose and results travel with it, and identity is unaffected — `id` is stored rather than
+derived from position, so sidecar artifacts stay attached. Reordering does change what a
+run-all does, since document order *is* execution order.
+
 ## Specs
 
 The specs are the authority for everything built here, and the code is downstream of them.

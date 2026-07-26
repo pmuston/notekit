@@ -141,6 +141,12 @@ The **Add a cell** form at the foot of the page writes further cells for you. Pr
 sources are editable in place: click any paragraph or any source block. An unsaved edit is
 flagged, and nothing but the region you edited is rewritten.
 
+The **↑** and **↓** buttons reorder cells. A cell's prose and results move with it, and the
+buttons are greyed out at the ends rather than hidden, so it is clear why nothing happens.
+Reordering changes what **Run all** does — cells run in document order — and the results
+already on the page are left exactly as they were, since notekit tracks no staleness. Re-run
+when you want them to match.
+
 ### Opening a notebook in the wrong tool
 
 ```bash

@@ -1286,3 +1286,168 @@ func TestWithLangOption(t *testing.T) {
 		t.Errorf("new cell got the wrong tag:\n%s", h.contents())
 	}
 }
+
+// --- reordering (format spec §10 h) ----------------------------------------------------
+
+// doWithFP is `do` with a document fingerprint attached, which is how a browser makes every
+// request.
+func (h *harness) doWithFP(method, target, fp string) *httptest.ResponseRecorder {
+	h.t.Helper()
+	req := httptest.NewRequest(method, target, nil)
+	req.Header.Set(FingerprintHeader, fp)
+	rec := httptest.NewRecorder()
+	h.e.ServeHTTP(rec, req)
+	return rec
+}
+
+// pageFingerprint reads the value the page was rendered with, the way notekit.js does.
+func (h *harness) pageFingerprint() string {
+	h.t.Helper()
+	m := regexp.MustCompile(`data-nk-doc="([^"]*)"`).FindStringSubmatch(h.get("/").Body.String())
+	if m == nil {
+		h.t.Fatal("the page carries no fingerprint, so a client has no way to learn one")
+	}
+	return m[1]
+}
+
+func TestMoveCell(t *testing.T) {
+	h := newHarness(t, "Opening prose, owned by no cell.\n\n"+
+		"## A\n\nprose for A\n\n```echo\na\n```\n\n```output\nr\n```\n\n"+
+		"## B\n\n```echo\nb\n```\n\n"+
+		"## C\n\n```echo\nc\n```\n")
+
+	rec := h.do(http.MethodPost, "/cells/1/move-up", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("move-up = %d: %s", rec.Code, rec.Body.String())
+	}
+	// Every index below the moved cell changed, so a partial swap would leave the page
+	// describing a structure that no longer exists.
+	if rec.Header().Get("HX-Refresh") != "true" {
+		t.Errorf("HX-Refresh = %q, want true", rec.Header().Get("HX-Refresh"))
+	}
+
+	// B rose above A, and A kept its prose and its result — the unit is the section.
+	want := front + "Opening prose, owned by no cell.\n\n" +
+		"## B\n\n```echo\nb\n```\n\n" +
+		"## A\n\nprose for A\n\n```echo\na\n```\n\n```output\nr\n```\n\n" +
+		"## C\n\n```echo\nc\n```\n"
+	if got := h.contents(); got != want {
+		t.Errorf("notebook:\n got %q\nwant %q", got, want)
+	}
+
+	// And back again restores the file exactly. Note the index: after the move B is at 0
+	// and A at 1, so it is B that moves down — moving index 1 would swap A with C.
+	if rec := h.do(http.MethodPost, "/cells/0/move-down", nil); rec.Code != http.StatusOK {
+		t.Fatalf("move-down = %d: %s", rec.Code, rec.Body.String())
+	}
+	if got := h.contents(); got != front+"Opening prose, owned by no cell.\n\n"+
+		"## A\n\nprose for A\n\n```echo\na\n```\n\n```output\nr\n```\n\n"+
+		"## B\n\n```echo\nb\n```\n\n"+
+		"## C\n\n```echo\nc\n```\n" {
+		t.Errorf("moving back did not restore the file:\n%q", got)
+	}
+}
+
+// TestMoveCellNoOpWritesNothing pins §10 h's no-op rule at the HTTP boundary: the file is
+// the artifact, and a spurious rewrite is visible to a reader, a diff and any watcher.
+func TestMoveCellNoOpWritesNothing(t *testing.T) {
+	h := newHarness(t, "## A\n\n```echo\na\n```\n\n## B\n\n```echo\nb\n```\n")
+	before := h.contents()
+
+	for _, tc := range []struct{ target, want string }{
+		{"/cells/0/move-up", "already first"},
+		{"/cells/1/move-down", "already last"},
+	} {
+		rec := h.do(http.MethodPost, tc.target, nil)
+		if rec.Code != http.StatusOK {
+			t.Errorf("%s = %d: %s", tc.target, rec.Code, rec.Body.String())
+		}
+		if !strings.Contains(rec.Body.String(), tc.want) {
+			t.Errorf("%s: body should say %q, got %s", tc.target, tc.want, rec.Body.String())
+		}
+		// Nothing to do means nothing written, so no refresh either.
+		if rec.Header().Get("HX-Refresh") == "true" {
+			t.Errorf("%s: a no-op should not refresh the page", tc.target)
+		}
+		if got := h.contents(); got != before {
+			t.Errorf("%s rewrote the file:\n got %q\nwant %q", tc.target, got, before)
+		}
+	}
+}
+
+func TestMoveCellRejectsABadIndex(t *testing.T) {
+	h := newHarness(t, "## A\n\n```echo\na\n```\n")
+	for _, target := range []string{"/cells/9/move-up", "/cells/x/move-down"} {
+		if rec := h.do(http.MethodPost, target, nil); rec.Code != http.StatusBadRequest {
+			t.Errorf("%s = %d, want 400", target, rec.Code)
+		}
+	}
+}
+
+// TestFingerprintGuardsStaleIndices is the reason the fingerprint exists. Reordering changes
+// what index 1 means while changing nothing a reader would notice, so a page rendered before
+// a move must not be able to act on the document that came after it.
+func TestFingerprintGuardsStaleIndices(t *testing.T) {
+	h := newHarness(t, "## A\n\n```echo\na\n```\n\n## B\n\n```echo\nb\n```\n\n## C\n\n```echo\nc\n```\n")
+	stale := h.pageFingerprint()
+
+	// The first request is in step and goes through.
+	if rec := h.doWithFP(http.MethodPost, "/cells/1/move-up", stale); rec.Code != http.StatusOK {
+		t.Fatalf("first move = %d: %s", rec.Code, rec.Body.String())
+	}
+	afterMove := h.contents()
+
+	// The same page now describes a structure that no longer exists. Every index-addressed
+	// mutation must refuse rather than act on the wrong cell.
+	for _, tc := range []struct{ method, target string }{
+		{http.MethodPost, "/cells/1/move-up"},
+		{http.MethodPost, "/cells/1/move-down"},
+		{http.MethodDelete, "/cells/1"},
+		{http.MethodPost, "/cells/1/run"},
+	} {
+		rec := h.doWithFP(tc.method, tc.target, stale)
+		if rec.Code != http.StatusConflict {
+			t.Errorf("%s %s = %d, want 409", tc.method, tc.target, rec.Code)
+		}
+		if rec.Header().Get("HX-Refresh") != "true" {
+			t.Errorf("%s %s: a stale page should be told to reload", tc.method, tc.target)
+		}
+		if got := h.contents(); got != afterMove {
+			t.Errorf("%s %s changed the notebook despite being stale", tc.method, tc.target)
+		}
+	}
+
+	// A fresh page works again.
+	if rec := h.doWithFP(http.MethodPost, "/cells/1/move-up", h.pageFingerprint()); rec.Code != http.StatusOK {
+		t.Errorf("a fresh fingerprint = %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+// TestFingerprintIgnoresRuns matters for usability rather than safety: running a cell moves
+// nothing, so it must not invalidate a page and make the next move look stale. This is why
+// the fingerprint covers structure rather than the whole file, whose bytes change on
+// every run.
+func TestFingerprintIgnoresRuns(t *testing.T) {
+	h := newHarness(t, "## A\n\n```echo\na\n```\n\n## B\n\n```echo\nb\n```\n")
+	fp := h.pageFingerprint()
+
+	h.runCell(0)
+
+	// The file has changed — a result was written — but the structure has not.
+	if got := h.pageFingerprint(); got != fp {
+		t.Errorf("a run changed the fingerprint (%s -> %s); a move after a run would be "+
+			"rejected for no reason", fp, got)
+	}
+	if rec := h.doWithFP(http.MethodPost, "/cells/1/move-up", fp); rec.Code != http.StatusOK {
+		t.Errorf("move after a run = %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+// TestFingerprintAbsentIsAllowed keeps the server usable outside the browser: curl and the
+// tests above have no rendered page to be stale, and refusing them would buy no safety.
+func TestFingerprintAbsentIsAllowed(t *testing.T) {
+	h := newHarness(t, "## A\n\n```echo\na\n```\n\n## B\n\n```echo\nb\n```\n")
+	if rec := h.do(http.MethodPost, "/cells/1/move-up", nil); rec.Code != http.StatusOK {
+		t.Errorf("no fingerprint = %d, want it allowed through: %s", rec.Code, rec.Body.String())
+	}
+}

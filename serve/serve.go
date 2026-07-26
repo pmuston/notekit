@@ -167,6 +167,8 @@ func (s *Server) Register(e *echo.Echo) {
 	g.PUT("/cells/:index/source", s.handleSourcePut)
 	g.POST("/cells/add", s.handleAddCell)
 	g.DELETE("/cells/:index", s.handleDeleteCell)
+	g.POST("/cells/:index/move-up", s.handleMoveUp)
+	g.POST("/cells/:index/move-down", s.handleMoveDown)
 	g.GET("/prose/:ref", s.handleProseGet)
 	g.PUT("/prose/:ref", s.handleProsePut)
 	g.GET("/sidecar/:name", s.handleSidecar)

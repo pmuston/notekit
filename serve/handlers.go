@@ -52,6 +52,11 @@ func (s *Server) handleRun(c echo.Context) error {
 	if err != nil {
 		return s.flash(c, http.StatusBadRequest, err.Error())
 	}
+	// Indices are only meaningful against the structure the page was rendered from, and
+	// a run writes a result into the cell it names.
+	if err := s.checkFingerprint(c); err != nil {
+		return err
+	}
 
 	id, err := s.sched.Submit(s.path, index)
 	if err != nil {
@@ -160,7 +165,7 @@ func (s *Server) handleProsePut(c echo.Context) error {
 		return s.flash(c, http.StatusConflict,
 			"that edit would make the notebook unreadable, so it was not saved")
 	}
-	if err := s.save(out); err != nil {
+	if err := s.saveAndTell(c, out); err != nil {
 		return s.flash(c, http.StatusInternalServerError, err.Error())
 	}
 
@@ -179,6 +184,16 @@ func (s *Server) handleProsePut(c echo.Context) error {
 // the artifact, so a torn write is unacceptable.
 func (s *Server) save(out []byte) error {
 	return doc.WriteFileAtomic(s.path, out, 0o644)
+}
+
+// saveAndTell saves and then tells the client the structure it now holds, so the next
+// request it makes is not rejected as stale.
+func (s *Server) saveAndTell(c echo.Context, out []byte) error {
+	if err := s.save(out); err != nil {
+		return err
+	}
+	setFingerprint(c, out)
+	return nil
 }
 
 // handleSidecar serves an artifact from the notebook's sidecar directory.
@@ -290,6 +305,11 @@ func (s *Server) handleSourcePut(c echo.Context) error {
 	if err != nil {
 		return s.flash(c, http.StatusBadRequest, err.Error())
 	}
+	// Indices are only meaningful against the structure the page was rendered from, and
+	// a source edit replaces the fence it names.
+	if err := s.checkFingerprint(c); err != nil {
+		return err
+	}
 
 	edit, err := cells[index].SetSource(c.FormValue("source"))
 	if err != nil {
@@ -311,7 +331,7 @@ func (s *Server) handleSourcePut(c echo.Context) error {
 		return s.flash(c, http.StatusConflict,
 			"that edit would change how many cells the notebook has, so it was not saved")
 	}
-	if err := s.save(out); err != nil {
+	if err := s.saveAndTell(c, out); err != nil {
 		return s.flash(c, http.StatusInternalServerError, err.Error())
 	}
 
@@ -368,7 +388,7 @@ func (s *Server) handleAddCell(c echo.Context) error {
 		return s.flash(c, http.StatusBadRequest, err.Error())
 	}
 
-	if err := s.applyStructural(edit, nb, len(cells)+1); err != nil {
+	if err := s.applyStructural(nb, len(cells)+1, edit); err != nil {
 		return s.flash(c, http.StatusConflict, err.Error())
 	}
 	// The page reloads: cell indices after the insertion point have all shifted, so
@@ -388,26 +408,81 @@ func (s *Server) handleDeleteCell(c echo.Context) error {
 	if err != nil {
 		return s.flash(c, http.StatusBadRequest, err.Error())
 	}
+	// Indices are only meaningful against the structure the page was rendered from, and
+	// a delete removes the section it names.
+	if err := s.checkFingerprint(c); err != nil {
+		return err
+	}
 
 	edit, err := nb.DeleteCell(cells[index])
 	if err != nil {
 		return s.flash(c, http.StatusConflict, err.Error())
 	}
-	if err := s.applyStructural(edit, nb, len(cells)-1); err != nil {
+	if err := s.applyStructural(nb, len(cells)-1, edit); err != nil {
 		return s.flash(c, http.StatusConflict, err.Error())
 	}
 	c.Response().Header().Set("HX-Refresh", "true")
 	return s.flash(c, http.StatusOK, "cell deleted")
 }
 
-// applyStructural applies an edit that changes how many cells the notebook has, and saves
+// handleMoveUp and handleMoveDown reorder a cell (format spec §10 h).
+func (s *Server) handleMoveUp(c echo.Context) error   { return s.move(c, true) }
+func (s *Server) handleMoveDown(c echo.Context) error { return s.move(c, false) }
+
+// move reorders one cell and refreshes the page, because every index below the moved cell
+// has changed.
+//
+// A no-op says so and writes nothing: §10 h forbids rewriting the file for a move with
+// nothing to do, since a spurious change is visible to a reader, a diff and any watcher.
+func (s *Server) move(c echo.Context, up bool) error {
+	nb, _, err := s.notebook()
+	if err != nil {
+		return s.flash(c, http.StatusInternalServerError, err.Error())
+	}
+	cells := nb.Cells()
+	index, err := cellIndex(c, cells)
+	if err != nil {
+		return s.flash(c, http.StatusBadRequest, err.Error())
+	}
+	// Reordering is the operation that makes a stale index dangerous, so it is the last
+	// place to skip this check.
+	if err := s.checkFingerprint(c); err != nil {
+		return err
+	}
+
+	var edits []doc.Edit
+	var moved bool
+	if up {
+		edits, moved, err = nb.MoveCellUp(cells[index])
+	} else {
+		edits, moved, err = nb.MoveCellDown(cells[index])
+	}
+	if err != nil {
+		return s.flash(c, http.StatusConflict, err.Error())
+	}
+	if !moved {
+		where := "last"
+		if up {
+			where = "first"
+		}
+		return s.flash(c, http.StatusOK, "that cell is already "+where)
+	}
+	// The count must not change: a move reorders, it never adds or removes.
+	if err := s.applyStructural(nb, len(cells), edits...); err != nil {
+		return s.flash(c, http.StatusConflict, err.Error())
+	}
+	c.Response().Header().Set("HX-Refresh", "true")
+	return s.flash(c, http.StatusOK, "cell moved")
+}
+
+// applyStructural applies edits that change how many cells the notebook has, and saves
 // only if the result parses and the count is what was intended.
 //
 // The count check is what distinguishes a structural edit from the others: a splice that
 // produced a different number of cells than asked for has gone wrong in a way no other
 // check would catch, and a notebook is not something to guess with.
-func (s *Server) applyStructural(edit doc.Edit, nb *doc.Notebook, wantCells int) error {
-	out, err := nb.Apply(edit)
+func (s *Server) applyStructural(nb *doc.Notebook, wantCells int, edits ...doc.Edit) error {
+	out, err := nb.Apply(edits...)
 	if err != nil {
 		return err
 	}
@@ -419,5 +494,7 @@ func (s *Server) applyStructural(edit doc.Edit, nb *doc.Notebook, wantCells int)
 		return fmt.Errorf("that edit would leave %d cells rather than %d, so it was not saved",
 			got, wantCells)
 	}
+	// No fingerprint on the response: every caller of this sets HX-Refresh, so the
+	// reloaded page carries the new one anyway.
 	return s.save(out)
 }

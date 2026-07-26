@@ -64,6 +64,8 @@ race:
 
 # Byte-identical round-trip is the property under test — see the implementation
 # plan §7. Go runs one fuzz target per invocation, hence the separate lines.
+# FuzzDocMoveCell earned its place immediately: it found two ways a move could collapse
+# two cells into one, both involving a section that was not self-contained.
 FUZZTIME ?= 30s
 
 fuzz:
@@ -73,6 +75,7 @@ fuzz:
 	go test -run '^$$' -fuzz FuzzDocParse -fuzztime $(FUZZTIME) ./doc
 	go test -run '^$$' -fuzz FuzzDocSetResult -fuzztime $(FUZZTIME) ./doc
 	go test -run '^$$' -fuzz FuzzDocAssignID -fuzztime $(FUZZTIME) ./doc
+	go test -run '^$$' -fuzz FuzzDocMoveCell -fuzztime $(FUZZTIME) ./doc
 
 lint:
 	go vet ./...

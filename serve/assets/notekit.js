@@ -113,6 +113,35 @@
     scope.querySelectorAll(".nk-flash").forEach(bindFlash);
   }
 
+  // --- Document fingerprint -------------------------------------------------
+  //
+  // Cells are addressed by index, and an index only means anything against the structure
+  // this page was rendered from. Reordering a cell changes indices while changing nothing
+  // visible, so a page left open in another tab could otherwise ask the server to run,
+  // edit or delete a different cell than the one it is showing.
+  //
+  // Every request carries the structure we hold; the server rejects a request whose
+  // fingerprint is stale, and returns the current one on every response that changed the
+  // notebook. Addressing by cell id would be the obvious alternative and is not possible:
+  // ids are assigned lazily and most cells have none.
+
+  var docFingerprint = (document.body && document.body.dataset.nkDoc) || "";
+
+  document.addEventListener("htmx:configRequest", function (e) {
+    if (docFingerprint) {
+      e.detail.headers["X-Notekit-Doc"] = docFingerprint;
+    }
+  });
+
+  document.addEventListener("htmx:afterRequest", function (e) {
+    var xhr = e.detail && e.detail.xhr;
+    if (!xhr) return;
+    var fresh = xhr.getResponseHeader("X-Notekit-Doc");
+    if (fresh) {
+      docFingerprint = fresh;
+    }
+  });
+
   document.addEventListener("DOMContentLoaded", function () { bindAll(document); });
   document.body && document.addEventListener("htmx:afterSwap", function (e) {
     bindAll(e.detail && e.detail.target ? e.detail.target : document);

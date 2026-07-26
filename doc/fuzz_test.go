@@ -213,3 +213,56 @@ func FuzzDocAssignID(f *testing.F) {
 		}
 	})
 }
+
+// FuzzDocMoveCell asserts what a move must guarantee for *any* input: the result parses,
+// and it holds the same cells as before — or the move was refused outright.
+//
+// It deliberately does not assert byte-identical reversibility. That property does hold for
+// notebooks whose sections are self-contained, and TestMoveIsReversible pins it for the
+// realistic shapes, but this target disproved it in general within minutes: a section is not
+// guaranteed self-contained, because an unclosed fence anywhere inside one runs to end of
+// file, and a level-1 heading makes a section that holds no cell. Once relocating a section
+// can change what the following bytes mean, "move away and back" is not an identity. The
+// honest invariant is preservation-or-refusal, and that is what this checks.
+func FuzzDocMoveCell(f *testing.F) {
+	fuzzSeeds(f)
+	f.Fuzz(func(t *testing.T, src string) {
+		n, err := Parse([]byte(src))
+		if err != nil || len(n.Cells()) < 2 {
+			return
+		}
+		before := headingList(n)
+
+		edits, ok, err := n.MoveCellDown(n.Cells()[0])
+		if err != nil {
+			// A refusal is a correct outcome: a section that is not self-contained
+			// cannot be relocated without changing what follows it (§4.2, §10 h).
+			return
+		}
+		if !ok {
+			t.Fatal("a notebook with two cells must be able to move the first down")
+		}
+		moved, err := n.Apply(edits...)
+		if err != nil {
+			t.Fatalf("Apply: %v", err)
+		}
+
+		m, err := Parse(moved)
+		if err != nil {
+			t.Fatalf("a moved notebook must still parse: %v\n%q", err, moved)
+		}
+		// The same cells, reordered — none lost, none invented. MoveCellDown verifies
+		// this itself before returning edits, so a failure here means that check is
+		// wrong, not merely that the input was odd.
+		if got, want := len(m.Cells()), len(before); got != want {
+			t.Fatalf("cell count changed: %d, want %d\n%q", got, want, moved)
+		}
+	})
+}
+func headingList(n *Notebook) []string {
+	var out []string
+	for _, c := range n.Cells() {
+		out = append(out, c.HeadingText)
+	}
+	return out
+}

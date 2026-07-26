@@ -570,6 +570,19 @@ cell-level metadata for the runtime, uninterpreted by the format (harvest D6).
     and a no-op that still rewrites it produces a spurious change for a reader,
     a diff, and any watcher.
 
+    **A section that is not self-contained must not be moved, and the move is refused.**
+    An unclosed fence runs to end of file (§4.2), so it is harmless only while its cell
+    is last: relocate it and every following heading and fence becomes its body, which
+    silently collapses cells into one. Moving another cell *past* such a section does the
+    same thing, because a swap relocates both — so either participant being unclosed is a
+    refusal. Closing the fence first would be the silent repair this section forbids.
+
+    Because a section's self-containment is not decidable from the source fence alone, a
+    tool **should** confirm its own move rather than reason about which cases exist:
+    apply the edits, re-read, and check the notebook still holds the same cells before
+    committing the write. A fuzzer found a second shape of this hazard within minutes of
+    the operation existing, which is the evidence for preferring a check to an argument.
+
   Group (d)–(h) is the reason this list is not simply "results": a notebook a user
   cannot edit is a report, not a notebook. What unites the whole list is that every
   entry names a construct the format defines, so a tool never has to guess which bytes
@@ -593,9 +606,24 @@ Two rules follow, and they are deliberately asymmetric:
 - **Removing** a section takes its span exactly, and therefore carries away the
   separator that sat at its end.
 
-**What is therefore not guaranteed:** inserting a section and then removing it, or
-moving a cell away and back, returns a document with the same *cells* but not
-necessarily the same *bytes*. The seam whitespace may differ by one blank line.
+**What is therefore not guaranteed:** inserting a section and then removing it returns a
+document with the same *cells* but not necessarily the same *bytes*. The seam whitespace
+may differ by one blank line.
+
+For a **move**, more is achievable and worth aiming at, though it cannot be promised in
+general. Treating the trailing blank lines as belonging to the *position* rather than to
+the section — exchanging two sections' contents and leaving each slot's separator where
+it sits — makes a move exactly symmetric, so moving a cell away and back restores the
+file byte for byte. That holds whenever both sections are self-contained, which is the
+normal case and is worth a test. It cannot be guaranteed for every input, because a
+section containing an unclosed fence changes what the bytes after it mean; such a move
+is refused outright (§10 h), so the guarantee is *reversible or refused* rather than
+reversible always.
+
+One trap in implementing that: content taken from the end of the file carries no trailing
+newline, so appending the destination slot's separator to it yields a single line ending
+rather than a blank line, and the seam quietly loses its blank line. Give the content its
+own line terminator first.
 
 This does not weaken §10's round-trip guarantee, which is about parsing and
 re-serialising an **unedited** notebook — a file nobody asked to change is never
@@ -663,7 +691,11 @@ The format ships with a golden-file corpus; a conforming implementation passes a
     unchanged, and every sidecar attachment intact. Also required: the first cell moved
     up, the last moved down, and a one-cell notebook each write **nothing**; and moving
     the first cell downwards leaves the preamble in place rather than carrying it along
-    or landing above it.
+    or landing above it. A move involving a section that is not self-contained — an
+    unclosed fence anywhere inside it — is **refused**, in both directions, yielding no
+    edits. Moving a cell away and back is byte-identical wherever the move is permitted,
+    including across seams with irregular blank lines and a file with no trailing
+    newline.
 
 ## 12. Non-goals (format v1)
 

@@ -11,6 +11,16 @@
     {{else}}
     <button class="nk-btn" disabled title="{{.NotRunnable}}">Run</button>
     {{end}}
+    <button class="nk-btn" {{if .First}}disabled title="already first"{{else}}
+            hx-post="{{.Base}}/cells/{{.Index}}/move-up"
+            hx-swap="none"
+            title="move this cell, its prose and its results up"{{end}}
+            aria-label="move cell up">&uarr;</button>
+    <button class="nk-btn" {{if .Last}}disabled title="already last"{{else}}
+            hx-post="{{.Base}}/cells/{{.Index}}/move-down"
+            hx-swap="none"
+            title="move this cell, its prose and its results down"{{end}}
+            aria-label="move cell down">&darr;</button>
     <button class="nk-btn nk-btn-danger"
             hx-delete="{{.Base}}/cells/{{.Index}}"
             hx-swap="none"
