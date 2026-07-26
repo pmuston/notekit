@@ -453,6 +453,34 @@ with no runtime file dependencies beyond the notebook and its sidecar directory.
 Per the user's global preferences: if SQLite is needed (e.g. the sqlnote tool), use
 `modernc.org/sqlite`, not `github.com/mattn/go-sqlite3`.
 
+## Specified but NOT implemented
+
+**Format spec §10 (h) and §10.1, and the kit spec's addressing note, describe cell
+reordering. No code implements any of it.** `doc` has no move operation, `serve` has no
+route, and no document fingerprint exists. The amendment was written first, on purpose, so
+the decisions could be reviewed before anything was built — do not read the spec and assume
+the API is there.
+
+What the amendment settles, if it gets built:
+
+- The unit is a **section** (§4.1), so prose and results travel with the cell, and the
+  bytes move **verbatim** — never through the cell writer, which normalises by design.
+- Identity needs nothing new. `id` is stored and non-positional (§5.1) so a move is inert
+  for sidecars, and §11.9 already required that of a reorder. Under superseded D1 this
+  write would have silently reattached artifacts to the wrong cells.
+- §10.1 states the seam rule for insert, remove *and* move together, and admits what is
+  not guaranteed: insert-then-remove is cell-identical, not byte-identical, because
+  insertion normalises a seam and removal does not. Round-trip identity is untouched —
+  that governs an unedited file.
+- A no-op move (first cell up, last down, one-cell notebook) **must write nothing.**
+- Cells are addressed by index and reordering makes that unsafe for a stale page.
+  Addressing by `id` cannot fix it: `id` is lazy and *neither shipping tool produces
+  sidecars, so no cell in either has one*. The recorded answer is a **document
+  fingerprint** on mutating requests, which also covers insert and delete.
+- Document order is execution order, so a move changes what run-all does. D4 forbids
+  staleness tracking, so nothing may mark the now-misordered results. Re-running is the
+  user's call.
+
 ## Scope discipline
 
 Each spec ends with a **FUTURE** section. Do not implement anything in one — they are

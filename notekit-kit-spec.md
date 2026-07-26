@@ -57,9 +57,13 @@ notekit/
   dependency and is used as an independent CommonMark **oracle** in tests, which the
   scanner must agree with. See the implementation plan §3.2 for the evidence.
 - Provides splice operations: replace a cell's result blocks, append an `id` to a
-  source fence's info string, append a cell, edit a prose range. Splice is the *only*
-  write path; there is no "serialise the whole tree" API, by design — that is how
-  round-trip identity stays guaranteed.
+  source fence's info string, append a cell, edit a prose range, move a section to
+  another boundary. Splice is the *only* write path; there is no "serialise the whole
+  tree" API, by design — that is how round-trip identity stays guaranteed.
+- The move operation carries a section's bytes **verbatim** (format spec §10 h). It must
+  not be built on top of the cell writer: the writer normalises, which is right when
+  authoring a cell and wrong when relocating one. It must also return no edit at all when
+  the move is a no-op, so a tool cannot rewrite the file for nothing.
 - Owns `id` assignment and its invariants: lazy (only for cells producing sidecars),
   append-only into the info string, immutable thereafter, duplicates rejected as a
   tool error. The generator is injectable so the corpus stays deterministic.
@@ -129,6 +133,34 @@ handling and calls every live session's destroy hook.
   no frontend build step. A `make vendor` target may refresh vendored files.
 - The package provides components, not a fixed application: each tool composes its
   own `main` (flags, executor registration, session config) around them.
+
+**Addressing, and why it is not uniform.** Prose ranges are addressed *symbolically*
+(`preamble`, `2-before`, `2-after`) rather than by byte offset, because a stale page's
+offsets would splice into whatever now occupies them — and results move on every run.
+Cells are addressed by **index**, which is stable across runs but not across structural
+edits.
+
+Reordering (format spec §10 h) makes that distinction matter. Adding or deleting a cell
+already shifts indices, but a reorder does so while changing nothing a reader would
+notice, and it is a one-click operation rather than a considered one. A page left open in
+a second tab can therefore ask to run cell 2 and get a different cell than the one it
+displays.
+
+Addressing cells by `id` does **not** solve this. `id` is assigned lazily, only to cells
+producing sidecar results (format spec §5.1), and neither shipping tool produces any — so
+in practice no cell in either has an `id` at all. Assigning them eagerly would defeat the
+laziness that keeps hand-authored fences clean.
+
+The guard is therefore a **document fingerprint**: a mutating request carries the state
+the client was rendered from, and the server rejects it when the document has since
+changed, re-rendering instead of splicing. This costs no format surface, needs no
+identity where there is none, and covers cell insertion and deletion at the same time.
+
+**A move must not re-run anything.** Document order *is* execution order, so reordering
+changes what a run-all does — moving a `CREATE TABLE` below an `INSERT` breaks it. The
+format tracks no staleness by adjudication (harvest D4), so the results left on screen
+after a move are not marked as belonging to a previous order, and nothing in the kit may
+invent such marking. Re-running is the user's decision.
 
 ## 4. What a tool binary looks like
 

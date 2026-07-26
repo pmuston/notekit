@@ -23,6 +23,10 @@ Revised since first draft:
   fence's body, and inserting or removing a whole section.
 - **Sidecar payload and atomic writes (§8)** — corrected against the priortool
   implementation; see the note at the end of §8.
+- **Moving a section (§10 h, §10.1)** — reordering cells is admitted as a permitted
+  write, with the section's bytes moved verbatim. §10.1 states what happens to the
+  whitespace at a seam, for insertion and removal as well as movement, and says plainly
+  what is *not* guaranteed.
 
 **No placeholders remain.** §8 was verified against the priortool implementation: the
 directory name is confirmed, the payload rule was too thin and is corrected, and atomic
@@ -535,17 +539,75 @@ cell-level metadata for the runtime, uninterpreted by the format (harvest D6).
     `notekit: 1`, an optional `title` and optionally `notekit-tool` (§2.1), then one
     cell per (f). Nothing else — in particular no tool-specific configuration key,
     which the tool would only be guessing at. The one cell is required rather than
-    optional:
-    an empty notebook has no info-string tag, and §2.1 derives the engine from exactly
-    those tags. **An existing file is never a target of this write** — the file is the
+    optional: an empty notebook has no info-string tag, and §2.1 derives the engine from
+    exactly those tags. **An existing file is never a target of this write** — the file is the
     artifact, so a tool asked to create over one must refuse rather than overwrite.
 
-  Group (d)–(g) is the reason this list is not simply "results": a notebook a user
+  - (h) **moving a whole section to another section boundary** — reordering cells.
+    The unit is a section (§4.1), heading through to the next heading of any level, so
+    a cell's prose and its result travel with it; there is no way to move a source fence
+    out of its own section.
+
+    The section's bytes are moved **verbatim**. A move is not a removal followed by an
+    authoring of similar content: the source fence must not be re-rendered, its info
+    string must not be reordered or requoted, and its `id` must not be reassigned. A
+    tool that implements a move by round-tripping the cell through its cell *writer*
+    will violate this, because the writer's job is to normalise.
+
+    Identity is unaffected, and not by accident: `id` is stored and derived from
+    nothing (§5.1), so a move is inert for identity and for every sidecar attachment.
+    §11.9 already requires exactly this of a reorder. Under the superseded D1 scheme,
+    where a positional suffix disambiguated duplicate headings, this write would have
+    silently reattached artifacts to the wrong cells — which is why it is admissible
+    now and would not have been then.
+
+    The topmost destination is the start of the **first section**, not the start of the
+    body: a notebook's preamble (§3) is prose belonging to no cell, and a moved cell
+    must land after it rather than above it.
+
+    A move with nothing to do — the first cell moved up, the last moved down, or a
+    notebook of one cell — **must not write the file at all.** The file is the artifact,
+    and a no-op that still rewrites it produces a spurious change for a reader,
+    a diff, and any watcher.
+
+  Group (d)–(h) is the reason this list is not simply "results": a notebook a user
   cannot edit is a report, not a notebook. What unites the whole list is that every
   entry names a construct the format defines, so a tool never has to guess which bytes
   are safe to touch.
 - Tools must never reflow prose, normalise whitespace, reorder metadata they did
   not write, or "fix" non-conforming constructs.
+
+### 10.1 Whitespace at a seam
+
+Writes (f), (g) and (h) all cut or paste at a **section boundary**, and a boundary is
+the one place where whitespace is ambiguous about which cell it belongs to. A blank line
+separating two sections falls *inside the earlier section's span*, because a section
+runs to the next heading (§4.1) and the blank line comes before it.
+
+Two rules follow, and they are deliberately asymmetric:
+
+- **Inserting** a section normalises the seam: the heading is placed at the start of a
+  line, with one blank line above it unless one is already there, and separated from
+  whatever follows. A heading that does not begin a line is not a heading, so this much
+  is forced rather than cosmetic.
+- **Removing** a section takes its span exactly, and therefore carries away the
+  separator that sat at its end.
+
+**What is therefore not guaranteed:** inserting a section and then removing it, or
+moving a cell away and back, returns a document with the same *cells* but not
+necessarily the same *bytes*. The seam whitespace may differ by one blank line.
+
+This does not weaken §10's round-trip guarantee, which is about parsing and
+re-serialising an **unedited** notebook — a file nobody asked to change is never
+rewritten. It is a statement about edits composing, and it is worth writing down
+because the asymmetry is invisible until two edits are combined.
+
+*Considered and not adopted:* normalising the seam on removal as well, which would make
+move-there-and-back byte-identical in the common case. It was rejected for now because
+it changes the behaviour of (f) — a write that already ships and whose golden files
+encode the current shape — for a property no tool has asked for. A tool that wants a
+reversible move can achieve it without a format change, by moving the section back to
+the boundary it came from rather than to a recomputed one.
 
 ## 11. Conformance corpus
 
@@ -595,6 +657,13 @@ The format ships with a golden-file corpus; a conforming implementation passes a
     first cell, between two cells, after the last, and into a notebook with none — and a
     section removed from each of those positions. Every case round-trips and leaves every
     other cell byte-identical.
+15. **Moving a section (§10 h)**: a cell moved up and down across every boundary,
+    including past a cell whose section carries prose and a result. Each case must leave
+    the moved section's bytes unchanged, every other cell byte-identical, every `id`
+    unchanged, and every sidecar attachment intact. Also required: the first cell moved
+    up, the last moved down, and a one-cell notebook each write **nothing**; and moving
+    the first cell downwards leaves the preamble in place rather than carrying it along
+    or landing above it.
 
 ## 12. Non-goals (format v1)
 
