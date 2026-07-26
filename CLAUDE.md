@@ -4,10 +4,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Repository state
 
-Go module `github.com/pmuston/notekit` on Go 1.25.4. `meta` and `doc` are implemented
-and the conformance corpus is in place (M0a–M0c); `notefmt` (M0d) is next. `run`,
-`exec`, `kind`, and `serve` are doc-comment skeletons. The specs are the authority for
-everything that gets built:
+Go module `github.com/pmuston/notekit` on Go 1.25.4. **M0 is complete**: `meta`, `doc`,
+the conformance corpus, and the `notefmt` CLI. `run`, `exec`, `kind`, and `serve` are
+doc-comment skeletons — M1 is next. The specs are the authority for everything that gets
+built:
 
 | File | Owns |
 |---|---|
@@ -111,6 +111,7 @@ registration + `main`. Target surface is Go/Echo/HTMX only.
 
 ```
 notekit/
+  cmd/notefmt/  the M0 CLI: check, list, sidecars — a permanent linter
   doc/    document model: parse, cells, slugs, byte-range splice
   meta/   info-string metadata grammar: parse + canonical serialise
   run/    run scheduler: async execution, capture limits, result splice
@@ -258,8 +259,17 @@ Commands:
 make test          # go test ./...
 make lint          # go vet + gofmt check
 make fuzz          # all six targets, 30s each; FUZZTIME=2m for longer
+make check-corpus  # lint the acceptance corpus with notefmt itself
 go test ./doc -run TestResultPosition
 ```
+
+`notefmt` exits 0 (clean), 1 (problem found), or 2 (usage or I/O failure). A refused
+non-notebook is a finding about a file, not a crash, so one bad file in a glob does not
+abort the run. Errors are spec violations (refusal, duplicate `id`, malformed
+metadata); warnings are things that are legal but worth saying (unclosed fence,
+several result constructs, stale or orphaned sidecars). `-strict` promotes warnings.
+**notefmt never writes to a notebook** — a stale sidecar is reported with the name it
+should have, and an orphan is reported and left alone.
 
 ## Dependency policy
 

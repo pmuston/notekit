@@ -70,6 +70,23 @@ func (n *Notebook) Body() Span { return n.body }
 // Cells returns the notebook's cells in document order.
 func (n *Notebook) Cells() []*Cell { return n.cells }
 
+// Line returns the 1-based line number containing the given byte offset.
+//
+// Tools report problems as file:line so an editor can jump to them; spans are the
+// parser's currency, so the conversion belongs here rather than in every tool.
+func (n *Notebook) Line(offset int) int {
+	if offset > len(n.src) {
+		offset = len(n.src)
+	}
+	line := 1
+	for i := 0; i < offset; i++ {
+		if n.src[i] == '\n' {
+			line++
+		}
+	}
+	return line
+}
+
 // CellByID returns the cell carrying id, or nil.
 func (n *Notebook) CellByID(id string) *Cell {
 	for _, c := range n.cells {

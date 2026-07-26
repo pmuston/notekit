@@ -5,8 +5,8 @@
 > milestone list glosses over, and lists the spec questions each stage will force.
 > Not normative: the three specs govern. This document is disposable once M3 lands.
 
-Status: draft · Stage 0, M0a (`meta`), M0b (`doc`), and M0c (conformance corpus) are
-complete. M0d (`notefmt`) is next, and closes M0.
+Status: draft · **M0 complete** — Stage 0, `meta`, `doc`, the conformance corpus, and
+`notefmt`. M1 (`exec` + `run`) is next.
 
 ---
 
@@ -170,11 +170,42 @@ most being those that encode decisions rather than mechanics:
   no attachment; unmatched sidecar reported and retained. These are the cases the
   pre-`id` scheme silently failed.
 
-### 3.4 M0d — `notefmt`
+### 3.4 M0d — `notefmt` — ✅ COMPLETE
 
-CLI: parse a notebook, list cells (heading, slug, `id`, language, result kind), check
-round-trip identity, report orphans. Exit non-zero on any format error. Useful
-permanently as a linter and as the debugging tool for every later stage.
+Three subcommands at `cmd/notefmt`: `check` (round-trip, format errors, sidecar state),
+`list` (one line per cell), `sidecars` (classify the sidecar directory).
+
+Exit status splits three ways rather than two, which is what makes it usable as a CI
+gate: 0 nothing wrong, 1 a problem was found, 2 a usage or I/O failure. A refused
+non-notebook is a *finding* about a file (1), not a crash (2) — so one bad file in a
+glob does not abort the run or mask the rest.
+
+Errors and warnings are distinguished, and the split is a spec distinction, not a
+severity guess:
+
+- **errors** — a refused file, a duplicate `id`, malformed info-string metadata on a
+  source fence or a result block, a round-trip failure. All of these are tool errors
+  under §9 or §2.
+- **warnings** — an unclosed source fence (the cell is readable and runnable, but its
+  result can never be persisted, §4.2), several result constructs in one position
+  (legal on read; the next run collapses them, §4.2), and stale or orphaned sidecars
+  (§8.1). `-strict` promotes warnings to problems.
+
+notefmt never writes to a notebook. Reporting and repairing are different jobs and only
+the second needs a tool that can damage a file — so a stale sidecar is reported with the
+name it *should* have, and an orphan is reported and left alone.
+
+**Gate:** ✅ met. The full corpus is green; `notefmt check` over the corpus produces
+zero errors and exactly the three warnings those files exist to demonstrate (`make
+check-corpus`, also run in CI); six fuzz targets green; `doc` 99.8%, `meta` 100%,
+`notefmt` 95% statement coverage.
+
+`TestSpecExamplesConform` closes the other half of the gate — "every spec document's
+embedded examples". It extracts each ````markdown block from the specs, wraps it in
+front matter, and asserts it parses, round-trips, and contains no malformed metadata.
+That is a real guard, not decoration: it was verified to fail when §8's old
+space-separated provenance example is reintroduced, which is precisely the drift a
+reader would otherwise copy into a tool.
 
 **M0 gate:** full corpus green; `notefmt` round-trip-checks every corpus file and every
 spec document's embedded examples; both fuzz targets green. No execution code exists.

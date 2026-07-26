@@ -215,3 +215,24 @@ func TestIDNotAssignedToInlineResultCell(t *testing.T) {
 		t.Error("source fence gained an id token without being asked")
 	}
 }
+
+func TestLine(t *testing.T) {
+	src := front + "## One\n\n```sh\na\n```\n\n## Two\n\n```sh\nb\n```\n"
+	n := mustParse(t, src)
+
+	// Front matter is 4 lines, then a blank, so the first heading is line 6.
+	if got := n.Line(n.Cells()[0].Heading.Start); got != 6 {
+		t.Errorf("first heading on line %d, want 6", got)
+	}
+	if got := n.Line(n.Cells()[1].Heading.Start); got != 12 {
+		t.Errorf("second heading on line %d, want 12", got)
+	}
+	if got := n.Line(0); got != 1 {
+		t.Errorf("offset 0 on line %d, want 1", got)
+	}
+	// An offset past the end clamps rather than panicking, so a caller reporting a
+	// span at end of file cannot crash a tool.
+	if got, want := n.Line(len(src)+100), n.Line(len(src)); got != want {
+		t.Errorf("clamped line = %d, want %d", got, want)
+	}
+}

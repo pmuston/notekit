@@ -31,6 +31,11 @@ jobs:
       - name: test
         run: go test ./...
 
+      # Lint the acceptance corpus with the tool built from it — a self-check that
+      # catches a notefmt regression and a corpus regression alike.
+      - name: notefmt check corpus
+        run: make check-corpus
+
       # Short smoke runs; run `make fuzz` locally for longer before tagging.
       - name: fuzz (smoke)
         run: make fuzz FUZZTIME=10s

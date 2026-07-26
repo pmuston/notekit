@@ -1,9 +1,18 @@
-.PHONY: build test fuzz lint vendor all
+.PHONY: build test fuzz lint vendor all notefmt check-corpus
 
 all: lint test
 
 build:
 	go build ./...
+
+# notefmt is the M0 deliverable and stays useful as a linter.
+notefmt:
+	go build -o notefmt ./cmd/notefmt
+
+# Lint the corpus with the tool itself: a self-check that the acceptance suite's
+# own files are clean.
+check-corpus: notefmt
+	./notefmt check doc/testdata/corpus/*.md
 
 test:
 	go test ./...
