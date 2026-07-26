@@ -66,12 +66,21 @@ are committed, so it reads as a finished article before anything runs.
 [docs/sqlnote-demo.md](docs/sqlnote-demo.md) is a five-minute guided tour; every command in
 it is verified to work.
 
-Start a new notebook of your own — the starter cell is of that tool's own language, and
-runs as-is:
+Start one of your own with `new`, which writes front matter, a title from the filename, and
+one starter cell of that tool's own language — runnable as written:
 
 ```bash
 ./bin/sqlnote new report.md
 ./bin/clinote new checks.md
+```
+
+It refuses to overwrite an existing file, and the subcommand goes before any flags. Open a
+notebook with the wrong tool and it says so before starting, rather than failing once per
+cell when you click Run:
+
+```
+clinote: report.md has "sql" cells, and clinote runs "sh" cells
+  try: sqlnote report.md
 ```
 
 Lint a notebook without running it:

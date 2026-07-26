@@ -80,9 +80,46 @@ example can build a temp table in one cell and read it in another.
 That also means a self-contained notebook loses everything when you stop the server, by
 design. Bind it to a file if you want otherwise.
 
-## Write your own
+## Start your own
 
-Any Markdown file with `notekit: 1` front matter and a heading above a `sql` fence:
+```bash
+./bin/sqlnote new scratch.md
+```
+
+That writes the file and opens it:
+
+````markdown
+---
+notekit: 1
+title: Scratch
+notekit-tool: sqlnote
+---
+
+## First query
+
+```sql
+SELECT 'hello from sqlnote' AS greeting;
+```
+````
+
+Four things about it worth knowing:
+
+- **The starter cell runs as written.** Click Run and you get a table back, so the notebook
+  is working before you have typed anything.
+- **The title comes from the filename.** `parts-list.md` becomes "Parts list";
+  `my_notes.md` becomes "My notes".
+- **It never overwrites.** Point `new` at a file that exists and it refuses — the file is
+  the artifact, and a mistyped path should not cost you work.
+- **The subcommand goes first**, before any flags: `sqlnote new -addr :9000 scratch.md`. Put
+  it after and sqlnote tells you so rather than printing usage at you.
+
+Nothing else is invented — no prose, no placeholder result, and no `sqlnote-db`, since a
+notebook is self-contained until you bind it.
+
+### By hand, if you prefer
+
+Any Markdown file with `notekit: 1` front matter and a heading above a `sql` fence is a
+notebook:
 
 ````markdown
 ---
@@ -97,28 +134,31 @@ SELECT 1 AS n UNION ALL SELECT 2;
 ```
 ````
 
-Or let sqlnote write that for you:
+Then `./bin/sqlnote scratch.md`. With no argument sqlnote picks the notebook in the current
+directory; with several it names them rather than guessing.
+
+The **Add a cell** form at the foot of the page writes further cells for you. Prose and cell
+sources are editable in place: click any paragraph or any source block. An unsaved edit is
+flagged, and nothing but the region you edited is rewritten.
+
+### Opening a notebook in the wrong tool
 
 ```bash
-./bin/sqlnote new scratch.md
+./bin/sqlnote a-shell-notebook.md
 ```
 
-It creates the file with one runnable starter cell and opens it. It will not overwrite an
-existing notebook, and the subcommand goes before any flags.
+```
+sqlnote: a-shell-notebook.md has "sh" cells, and sqlnote runs "sql" cells
+  try: clinote a-shell-notebook.md
+```
 
-Opening a *shell* notebook with sqlnote is refused straight away, naming clinote instead.
-What a notebook can run is worked out from the tags its cells carry, never from front
-matter. The `notekit-tool: sqlnote` line `new` writes is only a hint for *other* tools — it
-lets a notebook point at an application that neither sqlnote nor clinote has heard of. It
-carries no authority: edit it to something wrong and you get a warning, not a refusal, and
+It refuses before starting, rather than letting you click Run and fail once per cell.
+
+What a notebook can run is worked out from the tags its cells carry — never from front
+matter. The `notekit-tool: sqlnote` line `new` writes is a hint for *other* tools, and its
+real value is pointing at applications neither of these binaries has heard of. It carries no
+authority: edit it to something wrong and you get a warning, not a refusal, and
 `notefmt check` will tell you it disagrees with the cells.
-
-Then `./bin/sqlnote scratch.md`. Or start from nothing — with no argument sqlnote picks
-the notebook in the current directory, and the **Add a cell** form at the foot of the page
-writes new cells for you.
-
-Prose and cell sources are editable in place: click any paragraph or any source block. An
-unsaved edit is flagged, and nothing but the region you edited is rewritten.
 
 ## Check a notebook without running it
 
@@ -142,8 +182,9 @@ a commit gate.
 | `noterun` | runs cells with no server, to see the async loop on its own |
 | `noteserve` | the browser UI with a toy executor, for looking at `serve` alone |
 
-`clinote` is the same shape with a different engine:
+`clinote` is the same shape with a different engine, `new` included:
 
 ```bash
-./bin/clinote        # picks the notebook in the current directory
+./bin/clinote                  # picks the notebook in the current directory
+./bin/clinote new checks.md    # a shell notebook with a runnable starter cell
 ```
