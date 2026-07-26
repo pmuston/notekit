@@ -1,0 +1,72 @@
+---
+notekit: 1
+title: Identity
+---
+
+## Results
+
+```sh
+echo one
+```
+
+```output {run="2026-07-26T12:00:00Z", tool="notefmt/0.0"}
+spliced result for Results
+```
+
+## Results
+
+Two cells share the slug `results`. That is not a collision and neither gets a
+positional suffix.
+
+```sh
+echo two
+```
+
+```output {run="2026-07-26T12:00:00Z", tool="notefmt/0.0"}
+spliced result for Results
+```
+
+## 日本語
+
+A non-ASCII heading yields an empty slug, which is permitted, not an error.
+
+```sh
+echo unicode
+```
+
+```output {run="2026-07-26T12:00:00Z", tool="notefmt/0.0"}
+spliced result for 日本語
+```
+
+## A heading long enough that its slug is truncated at exactly sixty characters yes
+
+```sh
+echo long
+```
+
+```output {run="2026-07-26T12:00:00Z", tool="notefmt/0.0"}
+spliced result for A heading long enough that its slug is truncated at exactly sixty characters yes
+```
+
+## Cell with an identity but an inline result
+
+An id may be present even when the result is inline; it is simply never assigned
+that way by a tool.
+
+```sh {id=aaaa2345}
+echo has-id
+```
+
+```output {run="2026-07-26T12:00:00Z", tool="notefmt/0.0"}
+spliced result for Cell with an identity but an inline result
+```
+
+## Cell with an identity and a sidecar
+
+```cypher {format=graph, id=zzzz2345}
+MATCH (n) RETURN n
+```
+
+```output {run="2026-07-26T12:00:00Z", tool="notefmt/0.0"}
+spliced result for Cell with an identity and a sidecar
+```

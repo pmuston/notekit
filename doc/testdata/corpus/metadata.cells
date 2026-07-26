@@ -1,0 +1,48 @@
+version: 1
+title: "Metadata"
+front matter: 110 bytes
+cells: 4
+
+[0] Bare and quoted values
+    level:     2
+    lang:      sh
+    slug:      "bare-and-quoted-values"
+    id:        ""
+    closed:    true
+    info:      "sh {format=csv, label=\"has spaces\", path=/usr/local/bin}"
+    source:    "echo hi\n"
+    resultpos: "\n```output {format=csv, run=\"2026-07-16T09:41:07Z\", tool=\"clinote/2.0\"}\na,b\n1,2\n```\n"
+    result[0]: form=output meta=[format=csv run=2026-07-16T09:41:07Z tool=clinote/2.0]
+
+[1] Flags and passthrough keys
+    level:     2
+    lang:      sh
+    slug:      "flags-and-passthrough-keys"
+    id:        ""
+    closed:    true
+    info:      "sh {verbose, retry=3, custom-key=value, under_score=x}"
+    source:    "echo hi\n"
+    resultpos: "\n```output {truncated}\npartial\n[notekit: output truncated at 7 bytes]\n```\n"
+    result[0]: form=output meta=[truncated]
+
+[2] Escapes in a quoted value
+    level:     2
+    lang:      sh
+    slug:      "escapes-in-a-quoted-value"
+    id:        ""
+    closed:    true
+    info:      "sh {msg=\"a \\\"quoted\\\" word and a backslash \\\\\"}"
+    source:    "echo hi\n"
+    resultpos: ""
+    results:   none
+
+[3] Hand-authored untidy spacing is never reformatted
+    level:     2
+    lang:      sh
+    slug:      "hand-authored-untidy-spacing-is-never-reformatted"
+    id:        ""
+    closed:    true
+    info:      "sh {  format = csv ,   verbose  }"
+    source:    "echo hi\n"
+    resultpos: ""
+    results:   none

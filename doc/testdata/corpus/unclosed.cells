@@ -1,0 +1,26 @@
+version: 1
+title: "Unclosed"
+front matter: 35 bytes
+cells: 2
+
+[0] A closed cell before the unclosed one
+    level:     2
+    lang:      sh
+    slug:      "a-closed-cell-before-the-unclosed-one"
+    id:        ""
+    closed:    true
+    info:      "sh"
+    source:    "echo fine\n"
+    resultpos: "\n```output\nfine\n```\n"
+    result[0]: form=output
+
+[1] The source fence below is never closed
+    level:     2
+    lang:      sh
+    slug:      "the-source-fence-below-is-never-closed"
+    id:        ""
+    closed:    false
+    info:      "sh"
+    source:    "echo unterminated\nthis line is inside the fence\n## so is this\n"
+    resultpos: ""
+    results:   none

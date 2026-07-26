@@ -5,8 +5,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Repository state
 
 Go module `github.com/pmuston/notekit` on Go 1.25.4. `meta` and `doc` are implemented
-(M0a, M0b); `run`, `exec`, `kind`, and `serve` are doc-comment skeletons. The specs are
-the authority for everything that gets built:
+and the conformance corpus is in place (M0a–M0c); `notefmt` (M0d) is next. `run`,
+`exec`, `kind`, and `serve` are doc-comment skeletons. The specs are the authority for
+everything that gets built:
 
 | File | Owns |
 |---|---|
@@ -232,9 +233,17 @@ The identity-stability cases (format spec §11.8) exist because the pre-`id` sch
 failed them — treat them as regression tests, not hypotheticals. The `id` generator
 must be injectable to keep goldens deterministic.
 
-Tests are table-driven, and the shared fixture set lives in `doc/fixtures_test.go` —
-add a case there and the round-trip test and goldmark cross-check pick it up
-automatically.
+Two layers, and both are wanted. `doc/fixtures_test.go` holds micro-case fixtures
+feeding the round-trip test and the goldmark cross-check — add a case there and both
+pick it up. `doc/testdata/corpus/` holds realistic notebooks, each with a `.cells`
+golden (parsed structure) and a `.spliced` golden (the document after running every
+cell). Four walk-driven tests mean dropping in a `.md` file adds all of them:
+
+```bash
+go test ./doc -run TestCorpus -update   # regenerate goldens, then review the diff
+```
+
+A golden that changed silently is a spec change nobody reviewed, so read the diff.
 
 **Fuzzing is load-bearing here, not decoration.** Byte-identity and append-only
 insertion are exactly the properties a fuzzer can falsify, and one already has: the

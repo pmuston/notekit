@@ -1,0 +1,59 @@
+version: 1
+title: "Sections"
+front matter: 35 bytes
+cells: 5
+
+[0] Outer
+    level:     2
+    lang:      sh
+    slug:      "outer"
+    id:        ""
+    closed:    true
+    info:      "sh"
+    source:    "echo outer\n"
+    resultpos: "\n```output\nouter\n```\n"
+    result[0]: form=output
+
+[1] Inner
+    level:     3
+    lang:      sh
+    slug:      "inner"
+    id:        ""
+    closed:    true
+    info:      "sh"
+    source:    "echo inner\n"
+    resultpos: "\n```output\ninner\n```\n"
+    result[0]: form=output
+
+[2] Deeper still
+    level:     4
+    lang:      cypher
+    slug:      "deeper-still"
+    id:        ""
+    closed:    true
+    info:      "cypher"
+    source:    "MATCH (n) RETURN n\n"
+    resultpos: ""
+    results:   none
+
+[3] Back to level two
+    level:     2
+    lang:      sh
+    slug:      "back-to-level-two"
+    id:        ""
+    closed:    true
+    info:      "sh"
+    source:    "echo back\n"
+    resultpos: ""
+    results:   none
+
+[4] Heading between a fence and an output block
+    level:     3
+    lang:      sh
+    slug:      "heading-between-a-fence-and-an-output-block"
+    id:        ""
+    closed:    true
+    info:      "sh"
+    source:    "echo orphaned\n"
+    resultpos: ""
+    results:   none

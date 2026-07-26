@@ -1,0 +1,48 @@
+version: 1
+title: "Fence Safety"
+front matter: 39 bytes
+cells: 4
+
+[0] Body containing a three-backtick run
+    level:     2
+    lang:      sh
+    slug:      "body-containing-a-three-backtick-run"
+    id:        ""
+    closed:    true
+    info:      "sh"
+    source:    "echo nested\n"
+    resultpos: "\n````output\n```\nthree backticks inside\n```\n````\n"
+    result[0]: form=output
+
+[1] Body containing a four-backtick run
+    level:     2
+    lang:      sh
+    slug:      "body-containing-a-four-backtick-run"
+    id:        ""
+    closed:    true
+    info:      "sh"
+    source:    "echo nested\n"
+    resultpos: "\n`````output\n````\nfour backticks inside\n````\n`````\n"
+    result[0]: form=output
+
+[2] Body containing a five-backtick run
+    level:     2
+    lang:      sh
+    slug:      "body-containing-a-five-backtick-run"
+    id:        ""
+    closed:    true
+    info:      "sh"
+    source:    "echo nested\n"
+    resultpos: "\n``````output\n`````\nfive backticks inside\n`````\n``````\n"
+    result[0]: form=output
+
+[3] Source fence itself uses four backticks
+    level:     2
+    lang:      sh
+    slug:      "source-fence-itself-uses-four-backticks"
+    id:        ""
+    closed:    true
+    info:      "sh {format=csv}"
+    source:    "echo '```'\n"
+    resultpos: "\n```output\n```\n"
+    result[0]: form=output

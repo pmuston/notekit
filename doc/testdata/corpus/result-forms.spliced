@@ -1,0 +1,70 @@
+---
+notekit: 1
+title: Result Forms
+---
+
+## Output form
+
+```sh
+echo hi
+```
+
+```output {run="2026-07-26T12:00:00Z", tool="notefmt/0.0"}
+spliced result for Output form
+```
+
+## Error form
+
+```sh
+false
+```
+
+```output {run="2026-07-26T12:00:00Z", tool="notefmt/0.0"}
+spliced result for Error form
+```
+
+## Sidecar form
+
+```cypher {id=k3m7q2vf}
+MATCH (m:Module)-[r]->(n) RETURN m, r, n
+```
+
+```output {run="2026-07-26T12:00:00Z", tool="notefmt/0.0"}
+spliced result for Sidecar form
+```
+
+## Two output blocks are read as one cell's results
+
+```sh
+echo twice
+```
+
+```output {run="2026-07-26T12:00:00Z", tool="notefmt/0.0"}
+spliced result for Two output blocks are read as one cell's results
+```
+
+## Mixed forms are read together
+
+```sh {id=bbbb2345}
+echo mixed
+```
+
+```output {run="2026-07-26T12:00:00Z", tool="notefmt/0.0"}
+spliced result for Mixed forms are read together
+```
+
+## Prose terminates the result position
+
+```sh
+echo bounded
+```
+
+```output {run="2026-07-26T12:00:00Z", tool="notefmt/0.0"}
+spliced result for Prose terminates the result position
+```
+
+This paragraph is outside the result position and survives any run.
+
+```output
+so this block is prose, not a result
+```

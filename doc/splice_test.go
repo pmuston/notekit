@@ -399,3 +399,21 @@ func TestEditProseLeavesCellsIntact(t *testing.T) {
 		t.Errorf("cell body changed: %q", got)
 	}
 }
+
+// TestApplyTwoInsertionsAtSamePosition covers the ordering rule for edits that share a
+// start offset: two empty spans at one position do not overlap, so both apply, and the
+// stable sort keeps them in the order given.
+func TestApplyTwoInsertionsAtSamePosition(t *testing.T) {
+	n := mustParse(t, front+"## H\n\n```sh\na\n```\n")
+	at := len(n.Bytes())
+	out, err := n.Apply(
+		Edit{Span: Span{at, at}, Text: "first\n"},
+		Edit{Span: Span{at, at}, Text: "second\n"},
+	)
+	if err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+	if want := front + "## H\n\n```sh\na\n```\nfirst\nsecond\n"; string(out) != want {
+		t.Errorf("got %q, want %q", out, want)
+	}
+}

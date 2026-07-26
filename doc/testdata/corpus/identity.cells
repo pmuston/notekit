@@ -1,0 +1,70 @@
+version: 1
+title: "Identity"
+front matter: 35 bytes
+cells: 6
+
+[0] Results
+    level:     2
+    lang:      sh
+    slug:      "results"
+    id:        ""
+    closed:    true
+    info:      "sh"
+    source:    "echo one\n"
+    resultpos: ""
+    results:   none
+
+[1] Results
+    level:     2
+    lang:      sh
+    slug:      "results"
+    id:        ""
+    closed:    true
+    info:      "sh"
+    source:    "echo two\n"
+    resultpos: ""
+    results:   none
+
+[2] 日本語
+    level:     2
+    lang:      sh
+    slug:      ""
+    id:        ""
+    closed:    true
+    info:      "sh"
+    source:    "echo unicode\n"
+    resultpos: ""
+    results:   none
+
+[3] A heading long enough that its slug is truncated at exactly sixty characters yes
+    level:     2
+    lang:      sh
+    slug:      "a-heading-long-enough-that-its-slug-is-truncated-at-exactly"
+    id:        ""
+    closed:    true
+    info:      "sh"
+    source:    "echo long\n"
+    resultpos: ""
+    results:   none
+
+[4] Cell with an identity but an inline result
+    level:     2
+    lang:      sh
+    slug:      "cell-with-an-identity-but-an-inline-result"
+    id:        "aaaa2345"
+    closed:    true
+    info:      "sh {id=aaaa2345}"
+    source:    "echo has-id\n"
+    resultpos: "\n```output\nhas-id\n```\n"
+    result[0]: form=output
+
+[5] Cell with an identity and a sidecar
+    level:     2
+    lang:      cypher
+    slug:      "cell-with-an-identity-and-a-sidecar"
+    id:        "zzzz2345"
+    closed:    true
+    info:      "cypher {format=graph, id=zzzz2345}"
+    source:    "MATCH (n) RETURN n\n"
+    resultpos: "\n<!-- notekit:result kind=graph, run=\"2026-07-20T08:00:00Z\" -->\n![Cell with an identity and a sidecar](identity.assets/cell-with-an-identity-and-a-sidecar--zzzz2345.png)\n"
+    result[0]: form=sidecar dest=identity.assets/cell-with-an-identity-and-a-sidecar--zzzz2345.png meta=[kind=graph run=2026-07-20T08:00:00Z]

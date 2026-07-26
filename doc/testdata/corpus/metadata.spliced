@@ -1,0 +1,51 @@
+---
+notekit: 1
+title: Metadata
+sqlnote-db: ./analysis.db
+nested:
+  a: 1
+  b: [2, 3]
+list:
+  - one
+  - two
+---
+
+## Bare and quoted values
+
+```sh {format=csv, label="has spaces", path=/usr/local/bin}
+echo hi
+```
+
+```output {run="2026-07-26T12:00:00Z", tool="notefmt/0.0"}
+spliced result for Bare and quoted values
+```
+
+## Flags and passthrough keys
+
+```sh {verbose, retry=3, custom-key=value, under_score=x}
+echo hi
+```
+
+```output {run="2026-07-26T12:00:00Z", tool="notefmt/0.0"}
+spliced result for Flags and passthrough keys
+```
+
+## Escapes in a quoted value
+
+```sh {msg="a \"quoted\" word and a backslash \\"}
+echo hi
+```
+
+```output {run="2026-07-26T12:00:00Z", tool="notefmt/0.0"}
+spliced result for Escapes in a quoted value
+```
+
+## Hand-authored untidy spacing is never reformatted
+
+```sh {  format = csv ,   verbose  }
+echo hi
+```
+
+```output {run="2026-07-26T12:00:00Z", tool="notefmt/0.0"}
+spliced result for Hand-authored untidy spacing is never reformatted
+```

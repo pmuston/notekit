@@ -1,0 +1,55 @@
+---
+notekit: 1
+title: Kitchen Sink
+clinote-session: shell
+---
+
+Opening prose that no tool ever touches.
+
+## Disk usage by top-level directory
+
+Some explanation before the cell.
+
+```sh {format=csv}
+du -d1 -h | sort -hr | head -3
+```
+
+```output {run="2026-07-26T12:00:00Z", tool="notefmt/0.0"}
+spliced result for Disk usage by top-level directory
+```
+
+Prose between cells.
+
+## A command that fails
+
+```sh
+dv
+```
+
+```output {run="2026-07-26T12:00:00Z", tool="notefmt/0.0"}
+spliced result for A command that fails
+```
+
+## Not runnable, just an example
+
+This section's only fence is untagged, so it holds no cell.
+
+```
+just an illustration
+```
+
+## Two fences, one cell
+
+```sh
+echo real
+```
+
+```output {run="2026-07-26T12:00:00Z", tool="notefmt/0.0"}
+spliced result for Two fences, one cell
+```
+
+The fence below is an inert example: it is not the first in its section.
+
+```sh
+echo example
+```

@@ -89,6 +89,13 @@ var fixtures = []fixture{
 		body: "## H\n\n```sh\na\n```\n\n```output\nfirst\n```\n\n```output\nsecond\n```\n",
 	},
 	{
+		// Regression: an attribute-less marker must not be parsed as `result {}`,
+		// which §9 rejects as an empty metadata block.
+		name: "sidecar reference with no attributes",
+		body: "## H\n\n```cypher {id=cccc2345}\na\n```\n\n" +
+			"<!-- notekit:result -->\n![H](n.assets/h--cccc2345.png)\n",
+	},
+	{
 		name: "mixed output and sidecar forms",
 		body: "## H\n\n```sh {id=bbbb2345}\na\n```\n\n```output\ntext\n```\n\n" +
 			"<!-- notekit:result kind=graph -->\n![x](n.assets/h--bbbb2345.png)\n",

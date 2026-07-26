@@ -1,0 +1,37 @@
+version: 1
+title: "Kitchen Sink"
+front matter: 62 bytes
+cells: 3
+
+[0] Disk usage by top-level directory
+    level:     2
+    lang:      sh
+    slug:      "disk-usage-by-top-level-directory"
+    id:        ""
+    closed:    true
+    info:      "sh {format=csv}"
+    source:    "du -d1 -h | sort -hr | head -3\n"
+    resultpos: "\n```output {format=csv, run=\"2026-07-16T09:41:07Z\", tool=\"clinote/2.0\"}\nsize,path\n1.2G,./data\n480M,./vendor\n```\n"
+    result[0]: form=output meta=[format=csv run=2026-07-16T09:41:07Z tool=clinote/2.0]
+
+[1] A command that fails
+    level:     2
+    lang:      sh
+    slug:      "a-command-that-fails"
+    id:        ""
+    closed:    true
+    info:      "sh"
+    source:    "dv\n"
+    resultpos: "\n```error {status=127, run=\"2026-07-16T09:44:12Z\", tool=\"clinote/2.0\"}\nzsh: command not found: dv\n```\n"
+    result[0]: form=error meta=[status=127 run=2026-07-16T09:44:12Z tool=clinote/2.0]
+
+[2] Two fences, one cell
+    level:     2
+    lang:      sh
+    slug:      "two-fences-one-cell"
+    id:        ""
+    closed:    true
+    info:      "sh"
+    source:    "echo real\n"
+    resultpos: ""
+    results:   none

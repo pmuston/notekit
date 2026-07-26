@@ -1,0 +1,70 @@
+version: 1
+title: "Edge Whitespace"
+front matter: 42 bytes
+cells: 6
+
+[0] Indented fence
+    level:     2
+    lang:      sh
+    slug:      "indented-fence"
+    id:        ""
+    closed:    true
+    info:      "sh"
+    source:    "echo indented\n"
+    resultpos: ""
+    results:   none
+
+[1] Tilde fence
+    level:     2
+    lang:      sh
+    slug:      "tilde-fence"
+    id:        ""
+    closed:    true
+    info:      "sh {format=csv}"
+    source:    "echo tilde\n"
+    resultpos: ""
+    results:   none
+
+[2] Heading with closing hashes
+    level:     2
+    lang:      sh
+    slug:      "heading-with-closing-hashes"
+    id:        ""
+    closed:    true
+    info:      "sh"
+    source:    "echo closing\n"
+    resultpos: ""
+    results:   none
+
+[3] A hash inside a fence body
+    level:     2
+    lang:      sh
+    slug:      "a-hash-inside-a-fence-body"
+    id:        ""
+    closed:    true
+    info:      "sh"
+    source:    "## this is shell, not a heading\necho hi\n"
+    resultpos: "\n```output\nhi\n```\n"
+    result[0]: form=output
+
+[4] Setext heading below does not begin a section
+    level:     2
+    lang:      sh
+    slug:      "setext-heading-below-does-not-begin-a-section"
+    id:        ""
+    closed:    true
+    info:      "sh"
+    source:    "echo real\n"
+    resultpos: ""
+    results:   none
+
+[5] No blank line between fence and result
+    level:     2
+    lang:      sh
+    slug:      "no-blank-line-between-fence-and-result"
+    id:        ""
+    closed:    true
+    info:      "sh"
+    source:    "echo tight\n"
+    resultpos: "```output\ntight\n```\n"
+    result[0]: form=output

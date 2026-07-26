@@ -1,0 +1,48 @@
+version: 1
+title: "Images"
+front matter: 33 bytes
+cells: 4
+
+[0] A cell whose section also contains a plain image
+    level:     2
+    lang:      sh
+    slug:      "a-cell-whose-section-also-contains-a-plain-image"
+    id:        ""
+    closed:    true
+    info:      "sh"
+    source:    "echo hi\n"
+    resultpos: "\n```output\nhi\n```\n"
+    result[0]: form=output
+
+[1] An image with no provenance comment is never a result
+    level:     2
+    lang:      sh
+    slug:      "an-image-with-no-provenance-comment-is-never-a-result"
+    id:        ""
+    closed:    true
+    info:      "sh"
+    source:    "echo hi\n"
+    resultpos: ""
+    results:   none
+
+[2] An ordinary HTML comment is not a provenance marker
+    level:     2
+    lang:      sh
+    slug:      "an-ordinary-html-comment-is-not-a-provenance-marker"
+    id:        ""
+    closed:    true
+    info:      "sh"
+    source:    "echo hi\n"
+    resultpos: ""
+    results:   none
+
+[3] A provenance comment with no image is prose
+    level:     2
+    lang:      sh
+    slug:      "a-provenance-comment-with-no-image-is-prose"
+    id:        ""
+    closed:    true
+    info:      "sh"
+    source:    "echo hi\n"
+    resultpos: ""
+    results:   none

@@ -1,0 +1,72 @@
+version: 1
+title: "Result Forms"
+front matter: 39 bytes
+cells: 6
+
+[0] Output form
+    level:     2
+    lang:      sh
+    slug:      "output-form"
+    id:        ""
+    closed:    true
+    info:      "sh"
+    source:    "echo hi\n"
+    resultpos: "\n```output\nhi\n```\n"
+    result[0]: form=output
+
+[1] Error form
+    level:     2
+    lang:      sh
+    slug:      "error-form"
+    id:        ""
+    closed:    true
+    info:      "sh"
+    source:    "false\n"
+    resultpos: "\n```error {status=1}\n```\n"
+    result[0]: form=error meta=[status=1]
+
+[2] Sidecar form
+    level:     2
+    lang:      cypher
+    slug:      "sidecar-form"
+    id:        "k3m7q2vf"
+    closed:    true
+    info:      "cypher {id=k3m7q2vf}"
+    source:    "MATCH (m:Module)-[r]->(n) RETURN m, r, n\n"
+    resultpos: "\n<!-- notekit:result kind=graph, run=\"2026-07-16T10:02:55Z\", tool=\"graphtool/2.0\" -->\n![Sidecar form](result-forms.assets/sidecar-form--k3m7q2vf.png)\n"
+    result[0]: form=sidecar dest=result-forms.assets/sidecar-form--k3m7q2vf.png meta=[kind=graph run=2026-07-16T10:02:55Z tool=graphtool/2.0]
+
+[3] Two output blocks are read as one cell's results
+    level:     2
+    lang:      sh
+    slug:      "two-output-blocks-are-read-as-one-cell-s-results"
+    id:        ""
+    closed:    true
+    info:      "sh"
+    source:    "echo twice\n"
+    resultpos: "\n```output\nfirst\n```\n\n```output\nsecond\n```\n"
+    result[0]: form=output
+    result[1]: form=output
+
+[4] Mixed forms are read together
+    level:     2
+    lang:      sh
+    slug:      "mixed-forms-are-read-together"
+    id:        "bbbb2345"
+    closed:    true
+    info:      "sh {id=bbbb2345}"
+    source:    "echo mixed\n"
+    resultpos: "\n```output\ntext part\n```\n\n<!-- notekit:result kind=graph -->\n![Mixed forms](result-forms.assets/mixed-forms--bbbb2345.png)\n"
+    result[0]: form=output
+    result[1]: form=sidecar dest=result-forms.assets/mixed-forms--bbbb2345.png meta=[kind=graph]
+
+[5] Prose terminates the result position
+    level:     2
+    lang:      sh
+    slug:      "prose-terminates-the-result-position"
+    id:        ""
+    closed:    true
+    info:      "sh"
+    source:    "echo bounded\n"
+    resultpos: "\n```output\ninside\n```\n"
+    result[0]: form=output

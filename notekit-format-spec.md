@@ -238,6 +238,15 @@ Rules:
   `[notekit: output truncated at <N> bytes]` and add `truncated` as a flag key.
 - **Fence-length safety:** the fence uses N backticks where N = max(3, longest
   backtick run in the body + 1). Applies to `error` blocks equally.
+- **Ordering:** truncate, append the marker, *then* compute fence length. Truncation
+  can cut inside a backtick run, so a length computed from the untruncated body may be
+  too short — or needlessly long — for what is actually written.
+- **ANSI stripping scope:** remove CSI sequences (`ESC [` … final byte), OSC sequences
+  (`ESC ]` … BEL or ST), and any other `ESC` sequence (intermediates then a final
+  byte); then drop every remaining control character except tab and newline. A
+  carriage return is therefore dropped, so CRLF becomes LF and a progress-bar CR
+  disappears. A shell executor emits far more than colour, and the durable form is the
+  plain form (harvest F12).
 
 ## 7. Result blocks: `error`
 
@@ -402,7 +411,9 @@ The format ships with a golden-file corpus; a conforming implementation passes a
 4. Metadata grammar: valid/invalid info strings, quoting, flags, duplicate-key
    rejection.
 5. Result splice: run a cell, verify only the expected byte range changed.
-6. Fence-length safety: bodies containing 3, 4, 5-backtick runs.
+6. Fence-length safety: bodies containing 3, 4, 5-backtick runs, including a body
+   whose truncation cuts inside a backtick run — the fence must clear the run that
+   survives, not the original.
 7. Slug derivation: normalisation, 60-character truncation, empty result from a
    non-ASCII heading, and two cells sharing a slug with no suffix applied to either.
 8. `id` assignment: appended to a fence with no metadata and to one with existing
@@ -415,7 +426,10 @@ The format ships with a golden-file corpus; a conforming implementation passes a
    - reordering two cells, and inserting a third cell with a duplicate heading above
      them, leaves every sidecar attachment unchanged;
    - a sidecar whose `id` matches no cell is reported as an orphan and left on disk.
-10. Error block form, truncation marker, ANSI stripping.
+10. Error block form, truncation marker, and ANSI stripping across CSI, OSC, other
+    escape sequences, and stray control characters.
+11. Sidecar naming: `<slug>--<id>` written and split on the last `--`, an empty slug
+    yielding `<id>` alone, and a slug that itself contains `--`.
 
 ## 12. Non-goals (format v1)
 

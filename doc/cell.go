@@ -212,7 +212,14 @@ func collectResults(src []byte, rest []block, fenceEnd int) ([]Result, Span) {
 				Span: Span{Start: b.span.Start, End: img.span.End},
 				Dest: img.dest,
 			}
-			r.Meta, r.MetaErr = meta.Parse(provenanceTag + " {" + b.attrs + "}")
+			// The braces are synthetic: §8 describes the attributes as the §9
+			// grammar with them removed. An attribute-less marker must not become
+			// `{}`, which §9 rejects as an empty metadata block.
+			info := provenanceTag
+			if b.attrs != "" {
+				info += " {" + b.attrs + "}"
+			}
+			r.Meta, r.MetaErr = meta.Parse(info)
 			i++
 
 		default:

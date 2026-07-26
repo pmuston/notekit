@@ -1,0 +1,15 @@
+version: 1
+title: "Minimal"
+front matter: 34 bytes
+cells: 1
+
+[0] Disk usage
+    level:     2
+    lang:      sh
+    slug:      "disk-usage"
+    id:        ""
+    closed:    true
+    info:      "sh"
+    source:    "du -d1 -h | sort -hr | head -3\n"
+    resultpos: ""
+    results:   none

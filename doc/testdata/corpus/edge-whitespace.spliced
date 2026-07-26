@@ -1,0 +1,78 @@
+---
+notekit: 1
+title: Edge Whitespace
+---
+
+## Indented fence
+
+   ```sh
+echo indented
+   ```
+
+```output {run="2026-07-26T12:00:00Z", tool="notefmt/0.0"}
+spliced result for Indented fence
+```
+
+## Tilde fence
+
+~~~sh {format=csv}
+echo tilde
+~~~
+
+```output {run="2026-07-26T12:00:00Z", tool="notefmt/0.0"}
+spliced result for Tilde fence
+```
+
+## Heading with closing hashes ##
+
+```sh
+echo closing
+```
+
+```output {run="2026-07-26T12:00:00Z", tool="notefmt/0.0"}
+spliced result for Heading with closing hashes
+```
+
+## A hash inside a fence body
+
+```sh
+## this is shell, not a heading
+echo hi
+```
+
+```output {run="2026-07-26T12:00:00Z", tool="notefmt/0.0"}
+spliced result for A hash inside a fence body
+```
+
+## Setext heading below does not begin a section
+
+```sh
+echo real
+```
+
+```output {run="2026-07-26T12:00:00Z", tool="notefmt/0.0"}
+spliced result for Setext heading below does not begin a section
+```
+
+Underlined heading
+------------------
+
+```sh
+this fence is inert: the setext heading did not start a new section
+```
+
+## Fence inside a blockquote is not a cell
+
+> ```sh
+> echo quoted
+> ```
+
+## No blank line between fence and result
+
+```sh
+echo tight
+```
+
+```output {run="2026-07-26T12:00:00Z", tool="notefmt/0.0"}
+spliced result for No blank line between fence and result
+```

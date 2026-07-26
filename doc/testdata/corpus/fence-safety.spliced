@@ -1,0 +1,44 @@
+---
+notekit: 1
+title: Fence Safety
+---
+
+## Body containing a three-backtick run
+
+```sh
+echo nested
+```
+
+```output {run="2026-07-26T12:00:00Z", tool="notefmt/0.0"}
+spliced result for Body containing a three-backtick run
+```
+
+## Body containing a four-backtick run
+
+```sh
+echo nested
+```
+
+```output {run="2026-07-26T12:00:00Z", tool="notefmt/0.0"}
+spliced result for Body containing a four-backtick run
+```
+
+## Body containing a five-backtick run
+
+```sh
+echo nested
+```
+
+```output {run="2026-07-26T12:00:00Z", tool="notefmt/0.0"}
+spliced result for Body containing a five-backtick run
+```
+
+## Source fence itself uses four backticks
+
+````sh {format=csv}
+echo '```'
+````
+
+```output {run="2026-07-26T12:00:00Z", tool="notefmt/0.0"}
+spliced result for Source fence itself uses four backticks
+```

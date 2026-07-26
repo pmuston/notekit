@@ -1,0 +1,62 @@
+---
+notekit: 1
+title: Sections
+---
+
+## Outer
+
+```sh
+echo outer
+```
+
+```output {run="2026-07-26T12:00:00Z", tool="notefmt/0.0"}
+spliced result for Outer
+```
+
+### Inner
+
+Sections end at the next heading of any level, so this is its own cell.
+
+```sh
+echo inner
+```
+
+```output {run="2026-07-26T12:00:00Z", tool="notefmt/0.0"}
+spliced result for Inner
+```
+
+#### Deeper still
+
+```cypher
+MATCH (n) RETURN n
+```
+
+```output {run="2026-07-26T12:00:00Z", tool="notefmt/0.0"}
+spliced result for Deeper still
+```
+
+## Back to level two
+
+```sh
+echo back
+```
+
+```output {run="2026-07-26T12:00:00Z", tool="notefmt/0.0"}
+spliced result for Back to level two
+```
+
+### Heading between a fence and an output block
+
+```sh
+echo orphaned
+```
+
+```output {run="2026-07-26T12:00:00Z", tool="notefmt/0.0"}
+spliced result for Heading between a fence and an output block
+```
+
+### The output below belongs to no cell
+
+```output
+this fence is first in its section, so this section has no cell
+```
