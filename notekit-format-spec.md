@@ -63,6 +63,55 @@ to the runtime uninterpreted. Tool-specific keys should be namespaced by convent
 A file without front matter, or without `notekit: 1`, is not a notekit notebook.
 Conforming tools must refuse it rather than guess.
 
+### 2.1 No key names the runner
+
+**Nothing in front matter identifies which notebook application should run a file, and
+nothing should be added that does.** A notebook's engine is *derived* from the
+info-string tags its cells already carry (§9): a file of `sql` cells is a SQL notebook
+because its cells say `sql`, not because a key says so.
+
+This was considered and rejected, and the reasoning is recorded here because the idea
+recurs naturally — with several tools in a kit, a `notekit-app: sqlnote` key looks
+obviously useful.
+
+Three reasons against it:
+
+1. **It is redundant, and redundancy needs a conflict rule.** The engine is already
+   stated once per cell. A notebook-level key is derived data that can disagree with
+   its source — front matter saying `sqlnote` above `sh` cells — so the format would
+   have to define which one wins. That is structurally the mistake D1 made: two jobs
+   conflated into one field, failing quietly. See the identity split in §5, which
+   exists because that failure mode already cost this format one redesign.
+2. **It couples the file to a binary.** The file is the artifact and any application is
+   merely a runner over it. A key naming the runner inverts that, and ties a notebook
+   to whatever a tool happened to be called when the file was written.
+3. **Deferring is free; adopting is permanent.** Unknown front-matter keys are
+   passthrough, so such a key can be introduced later with no format change at all.
+   But once notebooks in the wild carry it, every tool must honour it forever. The
+   risk is asymmetric, and the cheap direction is to wait.
+
+**Consequence, and it is not incidental:** a notebook with *no* cells has no tag to
+derive an engine from. This is the one case derivation cannot answer, which is why a
+tool's notebook-creating command writes a starter cell of its own language rather than
+an empty file (§10 f governs its shape). The starter cell is what keeps every
+notebook's engine knowable from the moment it exists.
+
+Two obligations follow for tools:
+
+- A tool **should** refuse a notebook none of whose cells it can run, and say so before
+  it starts work rather than once per cell at run time. A notebook with no cells, or
+  one where only *some* cells match, must still be accepted: execution is checked per
+  cell, so refusing the whole file would be stricter than the format.
+- A tool **must not** write such a key, including as a convenience.
+
+**When this would need revisiting:** if two engines ever share one language tag — two
+different SQL backends, say — the tag stops identifying the runner and derivation is
+genuinely insufficient. Tool configuration in front matter already distinguishes them
+in practice (`sqlnote-db` versus some other key), but that is inference. Should a
+declaration become necessary, declare the **language**, not the application: a language
+is checkable against the cells rather than competing with them, and it does not name a
+binary.
+
 ## 3. Document structure
 
 Everything after the front matter is CommonMark. Two constructs have meaning to the
@@ -456,8 +505,15 @@ cell-level metadata for the runtime, uninterpreted by the format (harvest D6).
   - (f) inserting a new section, or removing an existing one, at a section boundary.
     A new cell is a heading plus a source fence (§4) and nothing else — a tool must
     not invent prose, metadata, or a result to go with it.
+  - (g) creating a whole notebook that did not exist: front matter carrying
+    `notekit: 1` and an optional `title`, then one cell per (f). Nothing else — in
+    particular no tool-specific configuration key, which the tool would be guessing at,
+    and no key naming the runner (§2.1). The one cell is required rather than optional:
+    an empty notebook has no info-string tag, and §2.1 derives the engine from exactly
+    those tags. **An existing file is never a target of this write** — the file is the
+    artifact, so a tool asked to create over one must refuse rather than overwrite.
 
-  Group (d)–(f) is the reason this list is not simply "results": a notebook a user
+  Group (d)–(g) is the reason this list is not simply "results": a notebook a user
   cannot edit is a report, not a notebook. What unites the whole list is that every
   entry names a construct the format defines, so a tool never has to guess which bytes
   are safe to touch.

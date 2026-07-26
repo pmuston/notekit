@@ -10,6 +10,7 @@
 //
 //	clinote                    pick the notebook in the current directory
 //	clinote notebook.md        serve that notebook
+//	clinote new notebook.md    create a notebook, then serve it
 //	clinote -list              list candidate notebooks and exit
 //
 // Exit status is 0 on a clean shutdown, 1 if the server failed, and 2 for a usage or
@@ -48,6 +49,13 @@ func main() {
 }
 
 func runMain(args []string, stdout, stderr io.Writer) int {
+	// Strip the subcommand before parsing, so `new` accepts exactly the same flags as a
+	// plain invocation and there is only one flagset to keep in step.
+	sub := ""
+	if len(args) > 0 && args[0] == "new" {
+		sub, args = "new", args[1:]
+	}
+
 	fs := flag.NewFlagSet("clinote", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	addr := fs.String("addr", "127.0.0.1:8080", "address to listen on")
@@ -60,14 +68,26 @@ func runMain(args []string, stdout, stderr io.Writer) int {
 	poll := fs.Duration("poll", serve.DefaultPollInterval, "how often the browser polls a running cell")
 	list := fs.Bool("list", false, "list candidate notebooks and exit")
 	fs.Usage = func() {
-		fmt.Fprintf(stderr, "usage: clinote [flags] [notebook.md]\n\n"+
-			"With no notebook, clinote uses the one in the current directory.\n\nflags:\n")
+		fmt.Fprintf(stderr, "usage: clinote [flags] [notebook.md]\n"+
+			"       clinote new [flags] <notebook.md>\n\n"+
+			"With no notebook, clinote uses the one in the current directory.\n"+
+			"`new` writes a notebook with one starter cell, then serves it.\n\nflags:\n")
 		fs.PrintDefaults()
 	}
 	if err := fs.Parse(args); err != nil {
 		return exitUsage
 	}
 	if fs.NArg() > 1 {
+		// `clinote -addr X new n.md` parses as two paths, because flag stops at the
+		// first non-flag argument. Say so, rather than printing usage and leaving the
+		// user to spot that the subcommand has to come first.
+		for _, a := range args {
+			if a == "new" {
+				fmt.Fprintf(stderr, "clinote: `new` must come first: "+
+					"clinote new [flags] <notebook.md>\n")
+				return exitUsage
+			}
+		}
 		fs.Usage()
 		return exitUsage
 	}
@@ -88,16 +108,34 @@ func runMain(args []string, stdout, stderr io.Writer) int {
 		return exitOK
 	}
 
-	path, err := resolveNotebook(fs.Arg(0))
-	if err != nil {
-		fmt.Fprintf(stderr, "clinote: %v\n", err)
-		return exitUsage
-	}
-
 	ex, err := NewShellExecutor(*shell, *term, doc.OutputCap)
 	if err != nil {
 		fmt.Fprintf(stderr, "%v\n", err)
 		return exitUsage
+	}
+
+	var path string
+	if sub == "new" {
+		if fs.NArg() != 1 {
+			fmt.Fprintf(stderr, "clinote: `new` needs exactly one path\n")
+			return exitUsage
+		}
+		path = fs.Arg(0)
+		if err := createNotebook(path, ex.Lang()); err != nil {
+			fmt.Fprintf(stderr, "clinote: %v\n", err)
+			return exitUsage
+		}
+		fmt.Fprintf(stdout, "clinote: created %s\n", path)
+	} else {
+		path, err = resolveNotebook(fs.Arg(0))
+		if err != nil {
+			fmt.Fprintf(stderr, "clinote: %v\n", err)
+			return exitUsage
+		}
+		if err := checkEngine(path, ex.Lang()); err != nil {
+			fmt.Fprintf(stderr, "clinote: %v\n", err)
+			return exitUsage
+		}
 	}
 
 	ctx := context.Background()
@@ -239,3 +277,113 @@ func findNotebooks(dir string) ([]string, error) {
 
 // filepathDir is a tiny indirection so shell.go need not import path/filepath.
 func filepathDir(path string) string { return filepath.Dir(path) }
+
+// starterCell is the cell `new` writes. A new notebook gets one cell of the tool's own
+// language and nothing else — no invented prose, no placeholder result (§10 f).
+//
+// It is not merely a courtesy. A notebook's engine is derived from the info-string tags its
+// cells carry (§2.1), so a notebook with no cells has nothing to derive from. The starter
+// cell is what makes every notebook's engine knowable from the moment it is created, which
+// is why `new` writes one rather than an empty file.
+func starterCell(lang string) doc.NewCell {
+	return doc.NewCell{
+		Heading: "First command",
+		Lang:    lang,
+		Body:    "echo \"hello from clinote\"\n",
+	}
+}
+
+// createNotebook writes a new notebook at path.
+//
+// An existing file is never touched. The file is the artifact, so overwriting one on a
+// mistyped path would destroy work that no tool can recover — and refusing costs the user
+// one command.
+func createNotebook(path, lang string) error {
+	if _, err := os.Stat(path); err == nil {
+		return fmt.Errorf("%s already exists", path)
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	src, err := doc.Scaffold(titleFromPath(path), starterCell(lang))
+	if err != nil {
+		return err
+	}
+	// The same atomic write every other durable write uses: a reader must never see a
+	// half-written notebook.
+	return doc.WriteFileAtomic(path, src, 0o644)
+}
+
+// titleFromPath derives a readable title from a filename, so `clinote new parts-list.md`
+// opens as "Parts list" rather than "parts-list".
+func titleFromPath(path string) string {
+	base := strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))
+	base = strings.NewReplacer("-", " ", "_", " ").Replace(base)
+	base = strings.Join(strings.Fields(base), " ")
+	if base == "" {
+		return ""
+	}
+	return strings.ToUpper(base[:1]) + base[1:]
+}
+
+// checkEngine refuses a notebook this binary cannot run, before the server starts.
+//
+// The cells already say which engine a notebook wants, so there is nothing to look up and
+// nothing that can disagree (§2.1). Without this the mismatch surfaced only when someone
+// clicked Run, once per cell, as a message written for a developer — the notebook opened,
+// rendered and looked ready.
+//
+// A notebook with no cells is allowed: there is nothing to contradict, and a `new` notebook
+// always has one. So is a notebook where only *some* cells match, since package run checks
+// each cell as it runs it; refusing the whole file would be stricter than the format.
+func checkEngine(path, lang string) error {
+	src, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	nb, err := doc.Parse(src)
+	if err != nil {
+		return fmt.Errorf("%s: %w", path, err)
+	}
+	langs := nb.Langs()
+	if len(langs) == 0 {
+		return nil
+	}
+	for _, l := range langs {
+		if l == lang {
+			return nil
+		}
+	}
+	msg := fmt.Sprintf("%s has %s cells, and clinote runs %q cells",
+		path, quoteList(langs), lang)
+	if hint := toolFor(langs); hint != "" {
+		msg += "\n  try: " + hint + " " + path
+	}
+	return errors.New(msg)
+}
+
+// toolFor names the sibling tool for a set of languages, so the error can point somewhere
+// instead of only saying no.
+//
+// Deliberately a short list rather than a registry: executors are compiled in, so a tool
+// can only ever know about the siblings that existed when it was built. If a third notebook
+// tool lands, this is worth extracting into one place rather than growing here.
+func toolFor(langs []string) string {
+	for _, l := range langs {
+		if l == "sql" {
+			return "sqlnote"
+		}
+	}
+	return ""
+}
+
+// quoteList renders a language list for an error message.
+func quoteList(langs []string) string {
+	quoted := make([]string, len(langs))
+	for i, l := range langs {
+		quoted[i] = fmt.Sprintf("%q", l)
+	}
+	if len(quoted) == 1 {
+		return quoted[0]
+	}
+	return strings.Join(quoted[:len(quoted)-1], ", ") + " and " + quoted[len(quoted)-1]
+}

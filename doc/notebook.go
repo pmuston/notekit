@@ -126,3 +126,22 @@ func (n *Notebook) Preamble() Span {
 	}
 	return Span{Start: n.body.Start, End: n.cells[0].Section.Start}
 }
+
+// Langs returns the distinct info-string tags of the notebook's cells, in the order they
+// first appear.
+//
+// This is how a tool learns which engine a notebook wants. Nothing in front matter names a
+// runner (§2.1): the tags the cells already carry are the single source of truth, so there
+// is no second place to look and nothing that can disagree with itself.
+func (n *Notebook) Langs() []string {
+	var langs []string
+	seen := make(map[string]bool)
+	for _, c := range n.Cells() {
+		if c.Lang == "" || seen[c.Lang] {
+			continue
+		}
+		seen[c.Lang] = true
+		langs = append(langs, c.Lang)
+	}
+	return langs
+}

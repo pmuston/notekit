@@ -14,6 +14,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/pmuston/notekit/doc"
 )
 
 const front = "---\nnotekit: 1\ntitle: Shell Notebook\n---\n\n"
@@ -378,4 +380,122 @@ func (b *lockedBuffer) String() string {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	return b.buf.String()
+}
+
+// --- `new` and the engine check ------------------------------------------------------
+
+func TestNewWritesARunnableStarterCell(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "parts-list.md")
+
+	if err := createNotebook(path, "sh"); err != nil {
+		t.Fatalf("createNotebook: %v", err)
+	}
+
+	src, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	nb, err := doc.Parse(src)
+	if err != nil {
+		t.Fatalf("the notebook it wrote does not parse: %v\n%s", err, src)
+	}
+	// A title a person would recognise, not the filename.
+	if got := nb.Title(); got != "Parts list" {
+		t.Errorf("Title() = %q, want %q", got, "Parts list")
+	}
+	cells := nb.Cells()
+	if len(cells) != 1 {
+		t.Fatalf("got %d cells, want exactly 1", len(cells))
+	}
+	// The starter cell carries this tool's tag, which is what makes the notebook's engine
+	// derivable at all — an empty notebook would have nothing to derive from (§2.1).
+	if cells[0].Lang != "sh" {
+		t.Errorf("Lang = %q, want %q", cells[0].Lang, "sh")
+	}
+	if len(cells[0].Results) != 0 {
+		t.Error("a new cell must carry no result (§10 f)")
+	}
+	// And the notebook it just wrote is one this binary agrees to open.
+	if err := checkEngine(path, "sh"); err != nil {
+		t.Errorf("checkEngine rejected a notebook this tool just created: %v", err)
+	}
+}
+
+func TestNewRefusesToOverwrite(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "keep.md")
+	const precious = "notes I would hate to lose\n"
+	if err := os.WriteFile(path, []byte(precious), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// The file is the artifact, so a mistyped path must never destroy one.
+	if err := createNotebook(path, "sh"); err == nil {
+		t.Fatal("want an error for an existing file")
+	}
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != precious {
+		t.Errorf("the existing file was modified: %q", got)
+	}
+}
+
+func TestCheckEngineRefusesAForeignNotebookAndNamesTheTool(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "foreign.md")
+	src := "---\nnotekit: 1\n---\n\n## a\n\n```sql\nSELECT 1;\n```\n"
+	if err := os.WriteFile(path, []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	err := checkEngine(path, "sh")
+	if err == nil {
+		t.Fatal("want an error: every cell is sql and this tool runs sh")
+	}
+	// The message has to point somewhere. Failing per-cell on click with a developer's
+	// wording is what this replaces.
+	if !strings.Contains(err.Error(), "sqlnote") {
+		t.Errorf("error should name the sibling tool, got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "sql") {
+		t.Errorf("error should name the language found, got: %v", err)
+	}
+}
+
+func TestCheckEngineAllowsCellLessAndPartialMatches(t *testing.T) {
+	dir := t.TempDir()
+	// No cells: nothing to contradict, and package run guards each cell anyway. Refusing
+	// would block a notebook someone is part-way through writing.
+	bare := filepath.Join(dir, "bare.md")
+	if err := os.WriteFile(bare, []byte("---\nnotekit: 1\n---\n\njust prose\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := checkEngine(bare, "sh"); err != nil {
+		t.Errorf("a cell-less notebook must be allowed: %v", err)
+	}
+
+	// Mixed: one runnable cell is enough. Refusing the whole file would be stricter than
+	// the format, which decides per cell.
+	mixed := filepath.Join(dir, "mixed.md")
+	src := "---\nnotekit: 1\n---\n\n## a\n\n```sql\nSELECT 1;\n```\n\n## b\n\n```sh\n```\n"
+	if err := os.WriteFile(mixed, []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := checkEngine(mixed, "sh"); err != nil {
+		t.Errorf("a notebook with one runnable cell must be allowed: %v", err)
+	}
+}
+
+func TestNewMustComeFirst(t *testing.T) {
+	var out, errOut strings.Builder
+	// flag stops at the first non-flag argument, so this parses as two paths. The message
+	// must say what to do instead of dumping usage.
+	code := runMain([]string{"-addr", "127.0.0.1:0", "new", "x.md"}, &out, &errOut)
+	if code == exitOK {
+		t.Fatal("want a non-zero exit")
+	}
+	if !strings.Contains(errOut.String(), "must come first") {
+		t.Errorf("stderr should explain the ordering, got: %q", errOut.String())
+	}
 }

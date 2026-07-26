@@ -125,7 +125,8 @@ notekit/
   cmd/noteserve/  the M2 demo: the full HTMX loop in a browser
   cmd/clinote/    clinote v2 (M3): shell executor + main; ALL pty knowledge lives here
   cmd/sqlnote/    sqlnote (gate 4): SQLite executor + main; ALL database knowledge here
-  doc/            document model: parse, cells, slugs, byte-range splice, result writers
+  doc/            document model: parse, cells, slugs, byte-range splice, result writers,
+                  scaffold a new notebook
   meta/           info-string metadata grammar: parse + canonical serialise
   run/            run scheduler: async execution, capture limits, splice, atomic save
   exec/           executor and session contracts; exec/echoexec is the reference impl
@@ -254,6 +255,17 @@ Further invariants worth internalising before touching `run` or `exec`:
   §4.3 would make it a section with no cell.
 - Executors declare whether they emit `csv` or `jsonl`; the kit does **not**
   transcode between them.
+- **A notebook's engine is derived from its cells' info-string tags, never declared in
+  front matter** (format spec §2.1). `notekit-app: sqlnote` was considered and rejected:
+  it is redundant with tags that already exist, so it needs a conflict rule for the case
+  where the two disagree — structurally the D1 mistake again — and it ties a file to a
+  binary name when "the file is the artifact" is the first commitment. Because unknown
+  keys are passthrough, adding such a key later costs nothing, while un-adding one costs
+  everything; the cheap direction is to wait. `doc.Notebook.Langs()` is the whole
+  mechanism. Two knock-ons: a tool refuses at *open* a notebook none of whose cells it
+  can run (naming the sibling tool, not just saying no), and `new` **must** write a
+  starter cell, because a cell-less notebook is the one case derivation cannot answer.
+  If two engines ever share a tag, declare the *language*, not the app.
 
 ## Writing an executor
 
@@ -398,6 +410,12 @@ metadata); warnings are things that are legal but worth saying (unclosed fence,
 several result constructs, stale or orphaned sidecars). `-strict` promotes warnings.
 **notefmt never writes to a notebook** — a stale sidecar is reported with the name it
 should have, and an orphan is reported and left alone.
+
+Both notebook tools take a `new` subcommand — `clinote new notes.md`, `sqlnote new
+report.md` — which writes front matter, one heading and one starter cell of the tool's own
+language, then serves it. It refuses to overwrite an existing file. The subcommand comes
+first, before flags, because Go's `flag` stops at the first non-flag argument; a misplaced
+one gets a message saying so rather than a usage dump.
 
 `examples/parts.md` is a runnable notebook with its results committed, so it reads as a
 finished article on GitHub before anything is run. `make demo` points at it. Re-running

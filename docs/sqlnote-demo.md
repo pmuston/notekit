@@ -97,6 +97,17 @@ SELECT 1 AS n UNION ALL SELECT 2;
 ```
 ````
 
+Or let sqlnote write that for you:
+
+```bash
+./bin/sqlnote new scratch.md
+```
+
+It creates the file with one runnable starter cell and opens it. It will not overwrite an
+existing notebook, and the subcommand goes before any flags. Opening a *shell* notebook
+with sqlnote is refused straight away, naming clinote instead — a notebook's engine comes
+from the tags its cells carry, so no front-matter key is needed to work that out.
+
 Then `./bin/sqlnote scratch.md`. Or start from nothing — with no argument sqlnote picks
 the notebook in the current directory, and the **Add a cell** form at the foot of the page
 writes new cells for you.

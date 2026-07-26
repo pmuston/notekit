@@ -66,6 +66,14 @@ are committed, so it reads as a finished article before anything runs.
 [docs/sqlnote-demo.md](docs/sqlnote-demo.md) is a five-minute guided tour; every command in
 it is verified to work.
 
+Start a new notebook of your own — the starter cell is of that tool's own language, and
+runs as-is:
+
+```bash
+./bin/sqlnote new report.md
+./bin/clinote new checks.md
+```
+
 Lint a notebook without running it:
 
 ```bash
@@ -89,7 +97,7 @@ cmd/     the five binaries
 
 ## Design commitments
 
-Three decisions drive most of the implementation:
+These decisions drive most of the implementation:
 
 **Byte-range splice is the only write path.** Every construct records its exact byte span,
 and there is deliberately no "serialise the whole tree" API. That absence is what
@@ -99,6 +107,12 @@ metadata the tool did not write never reordered.
 **The format assigns almost no semantics.** Only `notekit` and `title` in front matter, plus
 the keys the format spec reserves, mean anything. Everything else — including *all* keys on
 source fences — is preserved byte-for-byte and handed to the runtime uninterpreted.
+
+**A notebook's engine comes from its cells, not from front matter.** A file of `sql` cells
+is a SQL notebook because its cells say `sql` — no key names the runner, so there is no
+second source of truth to disagree with the first. A tool refuses a notebook it cannot run
+at open, naming the tool that can. That is also why `new` writes a starter cell: a notebook
+with no cells is the one case this cannot answer.
 
 **Parsing is conservative; tools are loud.** A construct that fails to match the cell rules
 is prose, not an error. Errors come only from tools, and only about blocks they were asked
