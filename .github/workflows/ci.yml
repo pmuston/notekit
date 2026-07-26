@@ -17,6 +17,27 @@ jobs:
         with:
           go-version-file: go.mod
 
+      # clinote claims to support bash and zsh, so CI has to run both. The
+      # interactive-stdin bug shipped behind a green tick that had only ever exercised
+      # bash — zsh's line editor produced the prompt, echo and escape sequences that bash
+      # never did. The runner image ships bash; zsh is installed here rather than assumed,
+      # and both are asserted present so a change to the image surfaces as a clear
+      # failure instead of a silent skip.
+      #
+      # The tests are strict whenever CI is set (GitHub Actions sets it), so a missing
+      # shell fails rather than skips. That pairing is the point: installing the shell and
+      # refusing to skip are each useless without the other.
+      - name: install shells
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y zsh
+      - name: verify shells
+        run: |
+          for sh in bash zsh; do
+            command -v "$sh" >/dev/null || { echo "$sh missing"; exit 1; }
+            printf '  %-5s %s\n' "$sh" "$("$sh" --version | head -1)"
+          done
+
       - name: gofmt
         run: |
           if [ -n "$(gofmt -l .)" ]; then

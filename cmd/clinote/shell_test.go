@@ -5,6 +5,7 @@ package main
 import (
 	"context"
 	"errors"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -19,6 +20,28 @@ import (
 // is present on every platform CI runs on.
 const testShell = "bash"
 
+// requireExecutor builds an executor for sh, or ends the test.
+//
+// A developer without zsh installed should still be able to run the suite, so a missing
+// shell is a skip locally. In CI it is a failure: the interactive-stdin bug shipped behind
+// a green tick that had only ever exercised bash, and a skip would reproduce exactly that
+// blindness — the run would pass while proving nothing about the shell in question. CI is
+// set by GitHub Actions, so this needs no workflow configuration to stay strict.
+func requireExecutor(t *testing.T, sh string) *ShellExecutor {
+	t.Helper()
+	ex, err := NewShellExecutor(sh, "dumb", doc.OutputCap)
+	if err == nil {
+		return ex
+	}
+	if os.Getenv("CI") != "" {
+		t.Fatalf("%s unavailable: %v\n\n"+
+			"CI must exercise every shell in supportedShells. Install it in the "+
+			"workflow rather than letting this skip.", sh, err)
+	}
+	t.Skipf("%s unavailable: %v", sh, err)
+	return nil
+}
+
 func newSession(t *testing.T) exec.Session {
 	t.Helper()
 	return newSessionCap(t, doc.OutputCap)
@@ -28,7 +51,8 @@ func newSessionCap(t *testing.T, outputCap int) exec.Session {
 	t.Helper()
 	ex, err := NewShellExecutor(testShell, "dumb", outputCap)
 	if err != nil {
-		t.Skipf("%s unavailable: %v", testShell, err)
+		requireExecutor(t, testShell) // reports the skip-or-fail policy
+		t.Fatalf("%s unavailable: %v", testShell, err)
 	}
 	sess, err := ex.Open(context.Background(), exec.Notebook{Path: t.TempDir() + "/notes.md"})
 	if err != nil {
@@ -61,10 +85,7 @@ func runCell(t *testing.T, sess exec.Session, source, info string) (exec.Result,
 }
 
 func TestLangIsSh(t *testing.T) {
-	ex, err := NewShellExecutor(testShell, "dumb", doc.OutputCap)
-	if err != nil {
-		t.Skipf("%s unavailable: %v", testShell, err)
-	}
+	ex := requireExecutor(t, testShell)
 	if ex.Lang() != "sh" {
 		t.Errorf("Lang() = %q, want %q", ex.Lang(), "sh")
 	}
@@ -305,10 +326,7 @@ func TestAlreadyCancelledContext(t *testing.T) {
 // TestCloseUnblocksAHungCommand is why Close does not take the mutex: a Close that
 // waited would deadlock behind a stuck Execute, and Close runs on the Ctrl-C path.
 func TestCloseUnblocksAHungCommand(t *testing.T) {
-	ex, err := NewShellExecutor(testShell, "dumb", doc.OutputCap)
-	if err != nil {
-		t.Skipf("%s unavailable: %v", testShell, err)
-	}
+	ex := requireExecutor(t, testShell)
 	sess, err := ex.Open(context.Background(), exec.Notebook{Path: t.TempDir() + "/notes.md"})
 	if err != nil {
 		t.Fatal(err)
@@ -441,10 +459,7 @@ var supportedShells = []string{"bash", "zsh"}
 func TestEveryShellIsQuietAndUsable(t *testing.T) {
 	for _, sh := range supportedShells {
 		t.Run(sh, func(t *testing.T) {
-			ex, err := NewShellExecutor(sh, "dumb", doc.OutputCap)
-			if err != nil {
-				t.Skipf("%s unavailable: %v", sh, err)
-			}
+			ex := requireExecutor(t, sh)
 			sess, err := ex.Open(context.Background(), exec.Notebook{Path: t.TempDir() + "/n.md"})
 			if err != nil {
 				t.Fatalf("Open: %v", err)
@@ -532,10 +547,7 @@ func TestEveryShellIsQuietAndUsable(t *testing.T) {
 func TestShellIsNonInteractive(t *testing.T) {
 	for _, sh := range supportedShells {
 		t.Run(sh, func(t *testing.T) {
-			ex, err := NewShellExecutor(sh, "dumb", doc.OutputCap)
-			if err != nil {
-				t.Skipf("%s unavailable: %v", sh, err)
-			}
+			ex := requireExecutor(t, sh)
 			sess, err := ex.Open(context.Background(), exec.Notebook{Path: t.TempDir() + "/n.md"})
 			if err != nil {
 				t.Fatalf("Open: %v", err)
