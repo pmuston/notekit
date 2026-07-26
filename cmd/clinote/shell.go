@@ -13,6 +13,7 @@ import (
 	"os"
 	osexec "os/exec"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"syscall"
@@ -88,20 +89,44 @@ func (e *ShellExecutor) Open(ctx context.Context, nb exec.Notebook) (exec.Sessio
 		return nil, fmt.Errorf("clinote: locating %s: %w", e.shell, err)
 	}
 
-	// Non-interactive on purpose. An interactive shell runs a line editor that owns
-	// the terminal: zsh's ZLE re-enables echo after `stty -echo` and redraws a prompt
-	// before every command, and both land in the cell's captured output. Dropping -i
-	// removes the line editor, the prompt, and the echo at their source rather than
-	// asking the shell to suppress what it is designed to do. Nothing is lost that a
-	// notebook wants — state still carries between cells, because it is still one
+	// A pipe on stdin, the pty on stdout and stderr. This asymmetry is the whole
+	// trick, and omitting -i is not enough on its own:
+	//
+	// A shell decides it is interactive when **stdin is a terminal**, whatever flags
+	// it was given. An interactive zsh then sources .zshrc, sets a prompt, and runs
+	// its line editor — which re-enables echo after `stty -echo`, redraws the prompt
+	// before every command, and emits bracketed-paste toggles. All of it lands in the
+	// cell's captured output. bash under the same setup happens to stay quiet, which
+	// is exactly why this went unnoticed until someone ran it with zsh.
+	//
+	// Feeding stdin from a pipe makes the shell non-interactive for real: no rc file,
+	// no prompt, no line editor, and nothing to echo. Keeping the pty on stdout means
+	// programs still see a terminal and emit colour, which is the reason for a pty at
+	// all (harvest F12). State still carries between cells, because it is still one
 	// long-lived shell reading a stream (harvest R1).
+	ptmx, tty, err := pty.Open()
+	if err != nil {
+		return nil, fmt.Errorf("clinote: allocating a pty: %w", err)
+	}
+	stdinR, stdinW, err := os.Pipe()
+	if err != nil {
+		ptmx.Close()
+		tty.Close()
+		return nil, fmt.Errorf("clinote: creating the command pipe: %w", err)
+	}
+
 	cmd := osexec.Command(path)
 	if dir := dirOf(nb.Path); dir != "" {
 		cmd.Dir = dir
 	}
-	// Quiet every prompt the shell might emit. A prompt written between commands
-	// would land in a cell's captured output, and the sentinel protocol has no way to
-	// tell it apart from the command's own writing.
+	cmd.Stdin = stdinR
+	cmd.Stdout = tty
+	cmd.Stderr = tty
+	// A new session with the pty as controlling terminal, so TIOCGPGRP on the master
+	// reports the foreground process group and an interrupt reaches the right one.
+	// Ctty indexes the child's descriptors, where 1 is stdout — the pty.
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true, Setctty: true, Ctty: 1}
+	// Belt and braces: a non-interactive shell should not read these anyway.
 	cmd.Env = append(os.Environ(),
 		"PS1=", "PS2=", "PS3=", "PS4=",
 		"PROMPT=", "RPROMPT=", "PROMPT_COMMAND=",
@@ -109,22 +134,29 @@ func (e *ShellExecutor) Open(ctx context.Context, nb exec.Notebook) (exec.Sessio
 		"TERM="+e.term,
 	)
 
-	p, err := pty.Start(cmd)
-	if err != nil {
+	if err := cmd.Start(); err != nil {
+		ptmx.Close()
+		tty.Close()
+		stdinR.Close()
+		stdinW.Close()
 		return nil, fmt.Errorf("clinote: starting %s under a pty: %w", e.shell, err)
 	}
+	// The child holds its own copies; the parent keeps only the master and the write
+	// end. Leaving the slave open here would stop the master ever seeing EOF.
+	_ = tty.Close()
+	_ = stdinR.Close()
 
 	s := &shellSession{
 		cmd:      cmd,
-		pty:      p,
+		pty:      ptmx,
+		in:       stdinW,
 		sentinel: newSentinel(),
 		cap:      e.cap,
 	}
 	if err := s.init(); err != nil {
-		_ = p.Close()
-		if cmd.Process != nil {
-			_ = cmd.Process.Kill()
-		}
+		// Close is the one path that tears everything down correctly, including the
+		// stdin pipe and the child.
+		_ = s.Close(ctx)
 		return nil, err
 	}
 	return s, nil
@@ -144,9 +176,14 @@ func dirOf(path string) string {
 type shellSession struct {
 	// mu serialises Execute. Package run never runs two cells of one notebook at
 	// once, but a session must not rely on a caller's promise for its own safety.
-	mu       sync.Mutex
-	cmd      *osexec.Cmd
-	pty      *os.File
+	mu  sync.Mutex
+	cmd *osexec.Cmd
+	// pty is the master side: the session reads output from it. It is never written
+	// to — commands go down `in`.
+	pty *os.File
+	// in is the write end of the shell's stdin pipe. Closing it gives the shell EOF,
+	// which is how it exits cleanly.
+	in       *os.File
 	sentinel string
 	cap      int
 
@@ -170,11 +207,25 @@ type shellSession struct {
 // init quiets the shell and then runs a no-op through the sentinel protocol, which
 // swallows the shell's banner and the echo of the setup line itself.
 func (s *shellSession) init() error {
-	// With no line editor there is nothing to fight over the terminal, so this
-	// sticks. -onlcr stops the tty translating newlines to CRLF, which would
-	// otherwise put a stray carriage return at the end of every captured line.
-	setup := "stty -echo -onlcr 2>/dev/null; unset PROMPT_COMMAND HISTFILE\n"
-	if _, err := s.pty.Write([]byte(setup)); err != nil {
+	// Two settings, each for a specific failure:
+	//
+	// `trap ':' INT` keeps the session alive through a cancellation. A non-interactive
+	// shell has no job control, so a command runs in the shell's own process group and
+	// an interrupt aimed at that group hits the shell too — which would kill it. A
+	// *handler* rather than an ignore is essential: POSIX resets handled traps to the
+	// default in a child, so the command still dies, while `trap '' INT` would be
+	// inherited as ignore and make the command unkillable.
+	//
+	// `set -m` would be the textbook answer here and is deliberately not used: it makes
+	// zsh stall on startup under this arrangement, presumably taking terminal control it
+	// cannot have. Found by trying it.
+	//
+	// `stty` reads its settings from stdin, which is now a pipe, so it is pointed at the
+	// controlling terminal instead. -onlcr stops the tty translating newlines to CRLF,
+	// which would otherwise put a stray carriage return on every captured line.
+	setup := "trap ':' INT; stty -onlcr < /dev/tty 2>/dev/null; " +
+		"unset PROMPT_COMMAND HISTFILE\n"
+	if _, err := s.in.Write([]byte(setup)); err != nil {
 		return fmt.Errorf("clinote: quieting the shell: %w", err)
 	}
 	if _, err := s.Execute(context.Background(), exec.Request{Source: "true\n"}); err != nil {
@@ -218,7 +269,7 @@ func (s *shellSession) Execute(ctx context.Context, req exec.Request) (exec.Resu
 	// temp file via a `2>` redirect; the format has no place for two streams, so the
 	// redirect and the temp file both go away.
 	full := source + "printf '\\n" + s.sentinel + ":%d\\n' \"$?\"\n"
-	if _, err := s.pty.Write([]byte(full)); err != nil {
+	if _, err := s.in.Write([]byte(full)); err != nil {
 		return exec.Result{}, fmt.Errorf("clinote: writing to the shell: %w", err)
 	}
 
@@ -348,7 +399,11 @@ func (s *shellSession) readUntilSentinel() ([]byte, int, bool, error) {
 					return nil, 0, truncated,
 						fmt.Errorf("clinote: malformed sentinel line %q", line)
 				}
-				status, perr := strconv.Atoi(string(line[colon+1:]))
+				// Trim a trailing CR: the tty translates LF to CRLF unless
+				// -onlcr took effect, and a status the parser refuses to read
+				// would look like a broken session rather than a stray byte.
+				digits := strings.TrimRight(string(line[colon+1:]), "\r \t")
+				status, perr := strconv.Atoi(digits)
 				if perr != nil {
 					return nil, 0, truncated,
 						fmt.Errorf("clinote: parsing exit status from %q: %w", line, perr)
@@ -402,6 +457,9 @@ func (s *shellSession) Close(context.Context) error {
 	if s.closed.Swap(true) {
 		return nil
 	}
+	// EOF on stdin asks the shell to exit; closing the pty is what unblocks a read
+	// stuck on a hung command.
+	_ = s.in.Close()
 	s.ptyMu.Lock()
 	_ = s.pty.Close()
 	s.ptyMu.Unlock()

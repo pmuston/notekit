@@ -291,10 +291,29 @@ Database-specific lessons from sqlnote:
 
 Shell-specific lessons worth not relearning:
 
-- **Do not run the shell interactively.** An interactive shell's line editor owns the
-  terminal: zsh's ZLE re-enables echo after `stty -echo` and redraws a prompt before every
-  command, and both land in the captured output. Dropping `-i` removes prompt, echo and
-  line editor at once; state still carries between cells.
+- **A shell is interactive because stdin is a terminal, not because of `-i`.** This is the
+  one that cost the most. An interactive shell's line editor owns the terminal: zsh's ZLE
+  re-enables echo after `stty -echo`, redraws a prompt before every command, and emits
+  bracketed-paste escapes — all of it landing in the captured output, along with the
+  sentinel and redraw wreckage. Omitting `-i` does *not* prevent this. The fix is
+  structural: **stdin is a pipe, stdout and stderr are the pty.** That kills prompt, echo
+  and line editor outright while keeping a tty on stdout, which is what makes colour
+  possible at all. State still carries between cells.
+- **`set -m` is the textbook way to get job control, and it stalls zsh here.** Without job
+  control a command shares the shell's process group, so interrupting that group would kill
+  the shell — hence the temptation. Use `trap ':' INT` instead: the shell catches the
+  interrupt and survives, and because POSIX resets *handled* traps to the default in a
+  child, the command still dies. `trap '' INT` would be wrong — an ignore **is** inherited,
+  making the command unkillable.
+- **`stty -onlcr < /dev/tty` is required, and the sentinel parser must not depend on it.**
+  Without it the tty appends `\r` to every line, and `strconv.Atoi("0\r")` fails, so a
+  cosmetic setting became a hard session failure. `stty` reads from stdin, now a pipe, so
+  point it at the controlling terminal. Trim the CR when parsing regardless.
+- **Test every shell you claim to support.** The interactive-stdin bug shipped because the
+  suite pinned one shell, and bash tolerates the arrangement zsh does not.
+  `TestEveryShellIsQuietAndUsable` and `TestShellIsNonInteractive` iterate
+  `supportedShells`; the latter pins the *mechanism*, so a regression says why rather than
+  only that output looked wrong.
 - **Keep reading past the output cap.** The sentinel arrives *after* the output, so a read
   that stops at the cap never sees it and the session desynchronises permanently.
 - **`Close` must not take the session mutex.** A hung command holds it, and `Close` runs

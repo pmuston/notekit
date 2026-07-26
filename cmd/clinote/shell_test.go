@@ -422,3 +422,147 @@ func TestSentinelsAreDistinctPerSession(t *testing.T) {
 		t.Errorf("sentinel = %q", a.sentinel)
 	}
 }
+
+// supportedShells is every shell NewShellExecutor accepts. The matrix test below runs
+// against all of them, which is the structural fix for how the zsh bug survived: the rest
+// of this file uses one shell, and for a long time that shell was bash — which tolerates
+// a configuration zsh does not.
+var supportedShells = []string{"bash", "zsh"}
+
+// TestEveryShellIsQuietAndUsable is the regression the earlier test matrix could not
+// catch. It asserts the properties that broke under zsh, for every shell clinote claims
+// to support.
+//
+// The bug: a shell decides it is interactive when *stdin is a terminal*, whatever flags it
+// was given. An interactive zsh sourced .zshrc, set a prompt, and ran its line editor —
+// which re-enabled echo after `stty -echo`, redrew the prompt before every command, and
+// emitted bracketed-paste escapes, all of it landing in the captured output. bash under the
+// same arrangement stayed quiet, so a single-shell suite reported success.
+func TestEveryShellIsQuietAndUsable(t *testing.T) {
+	for _, sh := range supportedShells {
+		t.Run(sh, func(t *testing.T) {
+			ex, err := NewShellExecutor(sh, "dumb", doc.OutputCap)
+			if err != nil {
+				t.Skipf("%s unavailable: %v", sh, err)
+			}
+			sess, err := ex.Open(context.Background(), exec.Notebook{Path: t.TempDir() + "/n.md"})
+			if err != nil {
+				t.Fatalf("Open: %v", err)
+			}
+			t.Cleanup(func() { _ = sess.Close(context.Background()) })
+
+			run := func(source string) string {
+				t.Helper()
+				got, err := sess.Execute(context.Background(), exec.Request{Source: source})
+				if err != nil {
+					t.Fatalf("Execute(%q): %v", source, err)
+				}
+				body, _ := got.Payload.(string)
+				return body
+			}
+
+			// Exactly the output, with nothing the shell added.
+			if body := run("echo hello\n"); body != "hello\n" {
+				t.Errorf("Payload = %q, want exactly %q", body, "hello\n")
+			}
+
+			// The specific artefacts the interactive shell produced. Each is checked by
+			// name so a failure says which mechanism came back.
+			body := run("echo marker\n")
+			for _, junk := range []struct{ what, seq string }{
+				{"a prompt", "%"},
+				{"bracketed paste", "\x1b[?2004"},
+				{"a carriage return", "\r"},
+				{"echoed input", "echo marker"},
+				{"the sentinel", "__NOTEKIT_END_"},
+			} {
+				if strings.Contains(body, junk.seq) {
+					t.Errorf("output contains %s (%q): %q", junk.what, junk.seq, body)
+				}
+			}
+
+			// State carries: one long-lived shell (harvest R1).
+			run("NOTEKIT_MATRIX=kept\ncd /tmp\n")
+			if body := run("echo \"$NOTEKIT_MATRIX\"\npwd\n"); !strings.Contains(body, "kept") ||
+				!strings.Contains(body, "/tmp") {
+				t.Errorf("state did not carry: %q", body)
+			}
+
+			// stdout and stderr interleave as produced (§7).
+			if body := run("echo one\necho two >&2\necho three\n"); body != "one\ntwo\nthree\n" {
+				t.Errorf("Payload = %q, want interleaved", body)
+			}
+
+			// A non-zero status is a domain failure carrying the code.
+			_, err = sess.Execute(context.Background(), exec.Request{Source: "( exit 42 )\n"})
+			var domain *exec.Error
+			if !errors.As(err, &domain) {
+				t.Fatalf("err = %v, want *exec.Error", err)
+			}
+			if domain.Status == nil || *domain.Status != 42 {
+				t.Errorf("Status = %v, want 42", domain.Status)
+			}
+
+			// Cancellation interrupts the command and leaves the session usable. This is
+			// why the setup traps INT rather than enabling job control: without a
+			// handler the interrupt would kill the shell along with the command.
+			ctx, cancel := context.WithCancel(context.Background())
+			go func() {
+				time.Sleep(300 * time.Millisecond)
+				cancel()
+			}()
+			if _, err := sess.Execute(ctx, exec.Request{Source: "sleep 30\n"}); !errors.Is(err, context.Canceled) {
+				t.Fatalf("err = %v, want context.Canceled", err)
+			}
+			if body := run("echo survived\n"); body != "survived\n" {
+				t.Errorf("the session did not survive cancellation: %q", body)
+			}
+
+			// Colour still reaches the executor raw, which is the reason for a pty at
+			// all — stripping is the format layer's job.
+			if body := run("printf '\\033[31mred\\033[0m\\n'\n"); !strings.Contains(body, "\x1b[31m") {
+				t.Errorf("the escape did not survive: %q", body)
+			}
+		})
+	}
+}
+
+// TestShellIsNonInteractive pins the mechanism rather than only its symptoms: if a future
+// change makes the shell interactive again, this fails first and says why.
+func TestShellIsNonInteractive(t *testing.T) {
+	for _, sh := range supportedShells {
+		t.Run(sh, func(t *testing.T) {
+			ex, err := NewShellExecutor(sh, "dumb", doc.OutputCap)
+			if err != nil {
+				t.Skipf("%s unavailable: %v", sh, err)
+			}
+			sess, err := ex.Open(context.Background(), exec.Notebook{Path: t.TempDir() + "/n.md"})
+			if err != nil {
+				t.Fatalf("Open: %v", err)
+			}
+			t.Cleanup(func() { _ = sess.Close(context.Background()) })
+
+			got, err := sess.Execute(context.Background(), exec.Request{
+				Source: "case \"$-\" in *i*) echo INTERACTIVE ;; *) echo NON-INTERACTIVE ;; esac\n",
+			})
+			if err != nil {
+				t.Fatalf("Execute: %v", err)
+			}
+			if body, _ := got.Payload.(string); body != "NON-INTERACTIVE\n" {
+				t.Errorf("shell reports %q; a terminal on stdin is what makes it "+
+					"interactive, so stdin must stay a pipe", body)
+			}
+
+			// And stdout is still a terminal, which is what makes colour possible.
+			got, err = sess.Execute(context.Background(), exec.Request{
+				Source: "[ -t 1 ] && echo TTY || echo NOT-TTY\n",
+			})
+			if err != nil {
+				t.Fatalf("Execute: %v", err)
+			}
+			if body, _ := got.Payload.(string); body != "TTY\n" {
+				t.Errorf("stdout reports %q, want TTY — programs detect colour from it", body)
+			}
+		})
+	}
+}
