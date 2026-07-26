@@ -277,6 +277,18 @@ func (s *Scheduler) Open(ctx context.Context, path string, ex exec.Executor) err
 	return nil
 }
 
+// Lang returns the info-string tag the notebook's executor claims.
+//
+// A UI that offers to create a cell needs this: a cell tagged anything else could never
+// be run, so asking the scheduler is better than asking the tool to remember.
+func (s *Scheduler) Lang(path string) (string, error) {
+	on, err := s.notebook(path)
+	if err != nil {
+		return "", err
+	}
+	return on.ex.Lang(), nil
+}
+
 // Cells returns the notebook's cells as last parsed.
 func (s *Scheduler) Cells(path string) ([]*doc.Cell, error) {
 	on, err := s.notebook(path)
@@ -285,6 +297,9 @@ func (s *Scheduler) Cells(path string) ([]*doc.Cell, error) {
 	}
 	on.mu.Lock()
 	defer on.mu.Unlock()
+	if err := on.reload(); err != nil {
+		return nil, err
+	}
 	return on.nb.Cells(), nil
 }
 
@@ -311,6 +326,10 @@ func (s *Scheduler) Submit(path string, cellIndex int) (ID, error) {
 	}
 
 	on.mu.Lock()
+	if err := on.reload(); err != nil {
+		on.mu.Unlock()
+		return "", err
+	}
 	cells := on.nb.Cells()
 	if cellIndex < 0 || cellIndex >= len(cells) {
 		on.mu.Unlock()

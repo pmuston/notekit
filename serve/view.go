@@ -20,6 +20,7 @@ type pageView struct {
 	Path     string
 	Preamble proseView
 	Cells    []cellView
+	AddCell  newCellView
 }
 
 // cellView is one cell's template data.
@@ -66,6 +67,18 @@ type proseView struct {
 	Editing  bool
 }
 
+// newCellView is the add-cell form's data.
+type newCellView struct {
+	Base string
+	// Lang is the tag new cells get — the executor's, since a cell tagged anything
+	// else could never be run here.
+	Lang string
+	// Count and Indices drive the position selector, which is omitted entirely when
+	// there is nowhere to insert but the end.
+	Count   int
+	Indices []int
+}
+
 // flashView is a transient message.
 type flashView struct {
 	Kind    string // "info" or "error"
@@ -108,6 +121,11 @@ func (s *Server) buildPage() (pageView, error) {
 	}
 	for i, c := range nb.Cells() {
 		page.Cells = append(page.Cells, s.buildCell(src, i, c, false))
+	}
+
+	page.AddCell = newCellView{Base: s.base, Lang: s.lang, Count: len(page.Cells)}
+	for i := range page.Cells {
+		page.AddCell.Indices = append(page.AddCell.Indices, i)
 	}
 	return page, nil
 }

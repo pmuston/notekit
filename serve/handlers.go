@@ -345,3 +345,103 @@ func (s *Server) handleSourcePut(c echo.Context) error {
 	}
 	return s.html(c, http.StatusOK, "cell", s.buildCell(src2, index, nb2.Cells()[index], false))
 }
+
+// handleAddCell inserts a new cell (§10 f).
+//
+// The new cell is a heading plus a source fence and nothing else: a tool that also
+// invented prose or a placeholder result would be writing content the user did not ask
+// for. `after` names the cell to insert after, or is absent to append at the end.
+func (s *Server) handleAddCell(c echo.Context) error {
+	nb, _, err := s.notebook()
+	if err != nil {
+		return s.flash(c, http.StatusInternalServerError, err.Error())
+	}
+	cells := nb.Cells()
+
+	lang := c.FormValue("lang")
+	if lang == "" {
+		lang = s.lang
+	}
+	spec := doc.NewCell{
+		Heading: c.FormValue("heading"),
+		Lang:    lang,
+		Body:    c.FormValue("body"),
+	}
+	if lvl := c.FormValue("level"); lvl != "" {
+		n, convErr := strconv.Atoi(lvl)
+		if convErr != nil {
+			return s.flash(c, http.StatusBadRequest, "level must be a number")
+		}
+		spec.Level = n
+	}
+
+	var edit doc.Edit
+	switch after := c.FormValue("after"); after {
+	case "":
+		edit, err = nb.AppendCell(spec)
+	default:
+		i, convErr := strconv.Atoi(after)
+		if convErr != nil || i < 0 || i >= len(cells) {
+			return s.flash(c, http.StatusBadRequest, "no such cell to insert after")
+		}
+		edit, err = nb.InsertCellAfter(cells[i], spec)
+	}
+	if err != nil {
+		// The reasons are spec conditions — a result tag, a bad heading level — so
+		// the message is the useful part.
+		return s.flash(c, http.StatusBadRequest, err.Error())
+	}
+
+	if err := s.applyStructural(edit, nb, len(cells)+1); err != nil {
+		return s.flash(c, http.StatusConflict, err.Error())
+	}
+	// The page reloads: cell indices after the insertion point have all shifted, so
+	// swapping one fragment would leave the rest addressing the wrong cells.
+	c.Response().Header().Set("HX-Refresh", "true")
+	return s.flash(c, http.StatusOK, "cell added")
+}
+
+// handleDeleteCell removes a cell and everything else in its section (§10 f).
+func (s *Server) handleDeleteCell(c echo.Context) error {
+	nb, _, err := s.notebook()
+	if err != nil {
+		return s.flash(c, http.StatusInternalServerError, err.Error())
+	}
+	cells := nb.Cells()
+	index, err := cellIndex(c, cells)
+	if err != nil {
+		return s.flash(c, http.StatusBadRequest, err.Error())
+	}
+
+	edit, err := nb.DeleteCell(cells[index])
+	if err != nil {
+		return s.flash(c, http.StatusConflict, err.Error())
+	}
+	if err := s.applyStructural(edit, nb, len(cells)-1); err != nil {
+		return s.flash(c, http.StatusConflict, err.Error())
+	}
+	c.Response().Header().Set("HX-Refresh", "true")
+	return s.flash(c, http.StatusOK, "cell deleted")
+}
+
+// applyStructural applies an edit that changes how many cells the notebook has, and saves
+// only if the result parses and the count is what was intended.
+//
+// The count check is what distinguishes a structural edit from the others: a splice that
+// produced a different number of cells than asked for has gone wrong in a way no other
+// check would catch, and a notebook is not something to guess with.
+func (s *Server) applyStructural(edit doc.Edit, nb *doc.Notebook, wantCells int) error {
+	out, err := nb.Apply(edit)
+	if err != nil {
+		return err
+	}
+	after, err := doc.Parse(out)
+	if err != nil {
+		return fmt.Errorf("that edit would make the notebook unreadable, so it was not saved")
+	}
+	if got := len(after.Cells()); got != wantCells {
+		return fmt.Errorf("that edit would leave %d cells rather than %d, so it was not saved",
+			got, wantCells)
+	}
+	return s.save(out)
+}

@@ -4,12 +4,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Repository state
 
-Go module `github.com/pmuston/notekit` on Go 1.25.4. **M0–M3 are complete**: the kit
-(`meta`, `doc`, `exec`, `kind`, `run`, `serve`), the conformance corpus, and four binaries
-— `notefmt` (linter), `noterun` and `noteserve` (demos), and `clinote` (the first real
-consumer: a pty shell executor plus a `main`). Two v1 parity features are deliberately
-deferred; see the implementation plan §6. The specs are the authority for everything that
-gets built:
+Go module `github.com/pmuston/notekit` on Go 1.25.4. **M0–M3 are complete and clinote v2
+is at functional v1 parity**: the kit (`meta`, `doc`, `exec`, `kind`, `run`, `serve`), the
+conformance corpus, and four binaries — `notefmt` (linter), `noterun` and `noteserve`
+(demos), and `clinote` (the first real consumer: a pty shell executor plus a `main`). The
+specs are the authority for everything that gets built:
 
 | File | Owns |
 |---|---|
@@ -228,6 +227,15 @@ Further invariants worth internalising before touching `run` or `exec`:
 - **Prose edits are addressed symbolically** — `preamble`, `2-before`, `2-after` — and
   never by byte offsets from the client. A stale page's offsets would splice into
   whatever now occupies them, and results move on every run.
+- **`run` is not the only writer, so it never caches a parse.** `serve` edits prose,
+  sources and structure, and a person may have the notebook open in an editor. A cached
+  parse leaves a splice working from offsets that no longer describe the file — and
+  because they are still *in range*, it writes to the wrong place instead of failing.
+  Every read of the scheduler's parse state re-reads the file first. Do not "optimise"
+  this away.
+- **A new cell is a heading plus a source fence and nothing else** (§10 f). No invented
+  prose, no placeholder result. Creating one tagged `output`/`error` is refused, since
+  §4.3 would make it a section with no cell.
 - Executors declare whether they emit `csv` or `jsonl`; the kit does **not**
   transcode between them.
 
@@ -278,7 +286,8 @@ The **format conformance corpus** (format spec §11) is the acceptance suite for
 identity over every corpus file; cell detection across mixed cells, inert example
 fences, headingless fences, nested heading levels; metadata grammar including
 quoting, flags, and duplicate-key rejection; result splice verifying *only* the
-expected byte range changed; section boundaries and result-position cases (§11.2–3,
+expected byte range changed; document edits — prose, source body, section insert and
+remove (§11.13); section boundaries and result-position cases (§11.2–3,
 including mixed result forms and a bare image link surviving a run); fence-length
 safety at 3/4/5-backtick runs; slug
 derivation with truncation, empty results, and shared slugs; `id` assignment,

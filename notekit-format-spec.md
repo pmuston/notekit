@@ -18,6 +18,9 @@ Revised since first draft:
 - **Sidecar lifecycle (§8.1)** — a run removes *superseded* artifacts of the cell it
   ran, while orphans of deleted cells remain report-only. Closes the gap where a cell
   that stopped producing a sidecar left files behind that no rule reached.
+- **Permitted writes (§10)** — the list is now grouped into writes a *run* makes and
+  writes a *user* asks for, and gained the two that were missing: editing a source
+  fence's body, and inserting or removing a whole section.
 
 One `VERIFY AGAINST PRIORTOOL` placeholder remains (sidecar directory name and payload
 shape, §8) — settle from priortool source before freezing.
@@ -397,12 +400,34 @@ cell-level metadata for the runtime, uninterpreted by the format (harvest D6).
 - The implementation posture that achieves this (harvest P2) is byte-range splice:
   a Markdown parser is used as a structural scanner only; tools rewrite exactly the
   byte ranges of blocks they executed or edited and copy every other byte through.
-- The complete set of writes a tool may perform is: (a) result blocks in result
-  position (§6, §7), (b) sidecar references and their provenance comments (§8),
-  (c) appending an `id` to a source fence's info string (§5.1, §9), and (d) prose
-  ranges the user explicitly edited. Note that (c) means **running a cell can modify
-  its source fence**, not only its results — narrowly, append-only, and at most once
-  per cell in its lifetime.
+- The complete set of writes a tool may perform falls into two groups, and the
+  distinction is what makes the list closed rather than arbitrary.
+
+  **Writes a run makes**, without being asked beyond "run this cell":
+
+  - (a) result constructs in result position (§4.2, §6, §7);
+  - (b) sidecar artifacts and their references, including removing the run cell's own
+    superseded artifacts (§8, §8.1);
+  - (c) appending an `id` to a source fence's info string (§5.1, §9). This means
+    **running a cell can modify its source fence**, not only its results — narrowly,
+    append-only, and at most once per cell in its lifetime.
+
+  **Writes the user asks for explicitly**, each addressing one construct:
+
+  - (d) a prose range the user edited;
+  - (e) a source fence whose body the user edited. The whole fence is re-emitted, not
+    just the body, because fence-length safety (§6) applies to a source fence too: a
+    body containing a fence-length run of the fence character would otherwise
+    terminate its own fence and turn the rest of the cell into prose. Widening is
+    permitted here precisely because the fence is what is being edited;
+  - (f) inserting a new section, or removing an existing one, at a section boundary.
+    A new cell is a heading plus a source fence (§4) and nothing else — a tool must
+    not invent prose, metadata, or a result to go with it.
+
+  Group (d)–(f) is the reason this list is not simply "results": a notebook a user
+  cannot edit is a report, not a notebook. What unites the whole list is that every
+  entry names a construct the format defines, so a tool never has to guess which bytes
+  are safe to touch.
 - Tools must never reflow prose, normalise whitespace, reorder metadata they did
   not write, or "fix" non-conforming constructs.
 
@@ -447,6 +472,11 @@ The format ships with a golden-file corpus; a conforming implementation passes a
     yielding `<id>` alone, and a slug that itself contains `--`.
 12. Sidecar lifecycle: a run removing a superseded artifact of the cell it ran while
     leaving an orphan of a deleted cell untouched.
+13. Document edits (§10 d–f): a prose range replaced; a source body replaced, including
+    one that forces the fence wider; a section inserted at each boundary — before the
+    first cell, between two cells, after the last, and into a notebook with none — and a
+    section removed from each of those positions. Every case round-trips and leaves every
+    other cell byte-identical.
 
 ## 12. Non-goals (format v1)
 

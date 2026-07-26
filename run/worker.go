@@ -1,6 +1,7 @@
 package run
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -24,6 +25,29 @@ func (s *Scheduler) worker(on *openNotebook) {
 		delete(s.cancels, p.id)
 		s.mu.Unlock()
 	}
+}
+
+// reload re-reads and re-parses the notebook. Callers must hold on.mu.
+//
+// Every read of the parse state goes through this, because the scheduler is not the only
+// writer: the server edits prose, sources and structure, and a person may have the file
+// open in an editor. A cached parse would leave a splice working from byte offsets that no
+// longer describe the file — which corrupts it rather than failing, since the offsets are
+// still in range. Re-reading costs one file read per run, against executing a command.
+func (on *openNotebook) reload() error {
+	src, err := os.ReadFile(on.path)
+	if err != nil {
+		return fmt.Errorf("run: re-reading %s: %w", on.path, err)
+	}
+	if bytes.Equal(src, on.src) {
+		return nil
+	}
+	nb, err := doc.Parse(src)
+	if err != nil {
+		return fmt.Errorf("run: %s changed and no longer parses: %w", on.path, err)
+	}
+	on.nb, on.src = nb, src
+	return nil
 }
 
 // execute runs one cell and persists its result.
@@ -50,6 +74,11 @@ func (s *Scheduler) execute(on *openNotebook, p *pending) {
 	}
 
 	on.mu.Lock()
+	if err := on.reload(); err != nil {
+		on.mu.Unlock()
+		fail(err)
+		return
+	}
 	cells := on.nb.Cells()
 	if p.index >= len(cells) {
 		on.mu.Unlock()
@@ -109,6 +138,11 @@ func (s *Scheduler) persist(on *openNotebook, index int, result exec.Result, exe
 	on.mu.Lock()
 	defer on.mu.Unlock()
 
+	// The cell may have executed for a while; re-read so the splice is against the
+	// file as it is now, not as it was when the run started.
+	if err := on.reload(); err != nil {
+		return 0, false, err
+	}
 	cells := on.nb.Cells()
 	if index >= len(cells) {
 		return 0, false, fmt.Errorf("run: cell %d no longer exists", index)

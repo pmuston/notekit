@@ -1,0 +1,29 @@
+{{define "addcell"}}
+<section class="nk-addcell">
+  <h2 class="nk-addcell-title">Add a cell</h2>
+  <form hx-post="{{.Base}}/cells/add" hx-swap="none">
+    <label class="nk-field">
+      <span>Heading</span>
+      <input type="text" name="heading" placeholder="What this cell does">
+    </label>
+    <label class="nk-field">
+      <span>Source</span>
+      <textarea class="nk-prose-edit nk-source-edit" name="body" placeholder="one command per line"></textarea>
+    </label>
+    <input type="hidden" name="lang" value="{{.Lang}}">
+    {{if gt .Count 0}}
+    <label class="nk-field">
+      <span>Position</span>
+      <select name="after">
+        <option value="">at the end</option>
+        {{range $i := .Indices}}<option value="{{$i}}">after cell {{$i}}</option>{{end}}
+      </select>
+    </label>
+    {{end}}
+    <div class="nk-edit-bar">
+      <button class="nk-btn" type="submit">Add</button>
+      <span class="nk-cell-meta">language: {{.Lang}}</span>
+    </div>
+  </form>
+</section>
+{{end}}

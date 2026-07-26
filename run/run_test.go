@@ -1224,3 +1224,106 @@ func (*boundedSession) Execute(context.Context, exec.Request) (exec.Result, erro
 	return exec.Result{Kind: "bounded", Payload: "short body\n", Truncated: true}, nil
 }
 func (*boundedSession) Close(context.Context) error { return nil }
+
+// TestExternalEditIsPickedUp is the bug the add-cell work exposed: the scheduler is not
+// the only writer. The server edits prose, sources and structure, and a person may have
+// the notebook open in an editor. A cached parse would leave a splice working from byte
+// offsets that no longer describe the file — which corrupts it rather than failing,
+// because the offsets are still in range.
+func TestExternalEditIsPickedUp(t *testing.T) {
+	h := newHarness(t, "## First\n\n```echo\nfirst\n```\n")
+
+	// Someone appends a cell behind the scheduler's back.
+	appended := front + "## First\n\n```echo\nfirst\n```\n\n## Second\n\n```echo\nsecond\n```\n"
+	if err := os.WriteFile(h.path, []byte(appended), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cells, err := h.s.Cells(h.path)
+	if err != nil {
+		t.Fatalf("Cells: %v", err)
+	}
+	if len(cells) != 2 {
+		t.Fatalf("got %d cells, want 2 — the external edit was not seen", len(cells))
+	}
+
+	// The new cell runs, and its result lands in the right place.
+	if r := h.runCell(1); r.State != Done {
+		t.Fatalf("state = %v (%v)", r.State, r.Err)
+	}
+	got := h.contents()
+	nb, err := doc.Parse([]byte(got))
+	if err != nil {
+		t.Fatalf("the notebook no longer parses: %v", err)
+	}
+	if len(nb.Cells()) != 2 {
+		t.Fatalf("got %d cells after the run, want 2:\n%s", len(nb.Cells()), got)
+	}
+	if len(nb.Cells()[1].Results) != 1 {
+		t.Errorf("the second cell has no result:\n%s", got)
+	}
+	if len(nb.Cells()[0].Results) != 0 {
+		t.Errorf("the result landed in the wrong cell:\n%s", got)
+	}
+	if !strings.Contains(got, "second") {
+		t.Errorf("the result body is wrong:\n%s", got)
+	}
+}
+
+// TestExternalEditBeforeAResultLandsInTheRightCell is the corruption case specifically:
+// bytes are inserted *above* the cell being run, so every offset below shifts.
+func TestExternalEditBeforeAResultLandsInTheRightCell(t *testing.T) {
+	h := newHarness(t, "## Target\n\n```echo\ntarget output\n```\n")
+
+	// A cell is inserted above the target while nothing is running. Under a cached
+	// parse the splice would use the target's old offsets and write into the new cell.
+	shifted := front + "## Inserted\n\n```echo\nx\n```\n\n## Target\n\n```echo\ntarget output\n```\n"
+	if err := os.WriteFile(h.path, []byte(shifted), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if r := h.runCell(1); r.State != Done {
+		t.Fatalf("state = %v (%v)", r.State, r.Err)
+	}
+	cells := mustCells(t, h.contents())
+	if len(cells) != 2 {
+		t.Fatalf("got %d cells:\n%s", len(cells), h.contents())
+	}
+	if cells[0].HeadingText != "Inserted" || len(cells[0].Results) != 0 {
+		t.Errorf("the inserted cell was disturbed: %q with %d results",
+			cells[0].HeadingText, len(cells[0].Results))
+	}
+	if cells[1].HeadingText != "Target" || len(cells[1].Results) != 1 {
+		t.Errorf("the target did not get its result: %q with %d results",
+			cells[1].HeadingText, len(cells[1].Results))
+	}
+}
+
+func TestExternalEditThatBreaksParsingIsRefused(t *testing.T) {
+	h := newHarness(t, "## First\n\n```echo\nfirst\n```\n")
+
+	// The front matter is removed, so the file is no longer a notebook.
+	if err := os.WriteFile(h.path, []byte("## First\n\n```echo\nfirst\n```\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.s.Cells(h.path); err == nil {
+		t.Error("Cells = nil error, want a refusal")
+	}
+	if _, err := h.s.Submit(h.path, 0); err == nil {
+		t.Error("Submit = nil error, want a refusal")
+	}
+}
+
+func TestSchedulerLang(t *testing.T) {
+	h := newHarness(t, "## A\n\n```echo\nx\n```\n")
+	got, err := h.s.Lang(h.path)
+	if err != nil {
+		t.Fatalf("Lang: %v", err)
+	}
+	if got != echoexec.Lang {
+		t.Errorf("Lang() = %q, want %q", got, echoexec.Lang)
+	}
+	if _, err := h.s.Lang("/nope.md"); err == nil {
+		t.Error("Lang on an unopened notebook = nil error, want error")
+	}
+}

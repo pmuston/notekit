@@ -1034,3 +1034,255 @@ func TestPageOffersRunAll(t *testing.T) {
 		t.Error("Run all offered for a notebook with no cells")
 	}
 }
+
+// The tests below cover the two parity features that were deferred at M3: adding a cell
+// and deleting one. Both change document *structure*, which is why they were held back
+// until the write they perform had a rule in §10 to follow.
+
+func TestAddCell(t *testing.T) {
+	h := newHarness(t, "## First\n\n```echo\na\n```\n")
+
+	rec := h.do(http.MethodPost, "/cells/add", url.Values{
+		"heading": {"Second"},
+		"body":    {"echo hi\n"},
+	})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST add = %d: %s", rec.Code, rec.Body.String())
+	}
+	// Indices after the insertion point shift, so the page reloads rather than
+	// swapping one fragment and leaving the rest addressing the wrong cells.
+	if rec.Header().Get("HX-Refresh") != "true" {
+		t.Errorf("HX-Refresh = %q", rec.Header().Get("HX-Refresh"))
+	}
+
+	got := h.contents()
+	want := front + "## First\n\n```echo\na\n```\n\n## Second\n\n```echo\necho hi\n```\n"
+	if got != want {
+		t.Errorf("notebook:\n got %q\nwant %q", got, want)
+	}
+	// A new cell is a heading plus a fence and nothing else — no invented prose, no
+	// placeholder result.
+	cells := mustParse(t, got).Cells()
+	if len(cells) != 2 {
+		t.Fatalf("got %d cells, want 2", len(cells))
+	}
+	if len(cells[1].Results) != 0 {
+		t.Error("a new cell must have no result")
+	}
+	if cells[1].Lang != "echo" {
+		t.Errorf("Lang = %q, want the executor's tag", cells[1].Lang)
+	}
+}
+
+func TestAddCellAtAPosition(t *testing.T) {
+	h := newHarness(t, "## A\n\n```echo\na\n```\n\n## C\n\n```echo\nc\n```\n")
+
+	rec := h.do(http.MethodPost, "/cells/add", url.Values{
+		"heading": {"B"}, "body": {"b\n"}, "after": {"0"},
+	})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST add = %d: %s", rec.Code, rec.Body.String())
+	}
+	cells := mustParse(t, h.contents()).Cells()
+	if len(cells) != 3 {
+		t.Fatalf("got %d cells, want 3", len(cells))
+	}
+	headings := []string{cells[0].HeadingText, cells[1].HeadingText, cells[2].HeadingText}
+	if headings[0] != "A" || headings[1] != "B" || headings[2] != "C" {
+		t.Errorf("order = %v, want [A B C]", headings)
+	}
+}
+
+func TestAddCellIntoAnEmptyNotebook(t *testing.T) {
+	h := newHarness(t, "")
+	rec := h.do(http.MethodPost, "/cells/add", url.Values{"heading": {"First"}, "body": {"x\n"}})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST add = %d: %s", rec.Code, rec.Body.String())
+	}
+	if n := len(mustParse(t, h.contents()).Cells()); n != 1 {
+		t.Errorf("got %d cells, want 1:\n%s", n, h.contents())
+	}
+}
+
+func TestAddCellRunsImmediately(t *testing.T) {
+	// The point of adding a cell is to run it, so the added cell must be runnable
+	// without a restart.
+	h := newHarness(t, "## First\n\n```echo\na\n```\n")
+	if rec := h.do(http.MethodPost, "/cells/add", url.Values{
+		"heading": {"Second"}, "body": {"fresh output\n"},
+	}); rec.Code != http.StatusOK {
+		t.Fatal(rec.Body.String())
+	}
+
+	final := h.runCell(1).Body.String()
+	if !strings.Contains(final, "fresh output") {
+		t.Errorf("the added cell did not run:\n%s", final)
+	}
+}
+
+func TestAddCellErrors(t *testing.T) {
+	h := newHarness(t, "## A\n\n```echo\na\n```\n")
+	before := h.contents()
+
+	tests := []struct {
+		name string
+		form url.Values
+	}{
+		// §4.3: a section whose first fence is tagged output holds no cell, so
+		// creating one would produce a cell that is not a cell.
+		{"result tag", url.Values{"heading": {"H"}, "lang": {"output"}}},
+		{"heading level 1", url.Values{"heading": {"H"}, "level": {"1"}}},
+		{"heading level 7", url.Values{"heading": {"H"}, "level": {"7"}}},
+		{"level not a number", url.Values{"heading": {"H"}, "level": {"two"}}},
+		{"newline in heading", url.Values{"heading": {"one\ntwo"}}},
+		{"after out of range", url.Values{"heading": {"H"}, "after": {"9"}}},
+		{"after not a number", url.Values{"heading": {"H"}, "after": {"x"}}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rec := h.do(http.MethodPost, "/cells/add", tt.form)
+			if rec.Code != http.StatusBadRequest {
+				t.Errorf("code = %d, want %d: %s", rec.Code, http.StatusBadRequest, rec.Body.String())
+			}
+			if h.contents() != before {
+				t.Error("nothing should have been written")
+			}
+		})
+	}
+}
+
+func TestDeleteCell(t *testing.T) {
+	h := newHarness(t, "Opening.\n\n"+
+		"## A\n\nprose\n\n```echo\na\n```\n\n```output\nr\n```\n\ntrailing\n\n"+
+		"## B\n\n```echo\nb\n```\n")
+
+	rec := h.do(http.MethodDelete, "/cells/0", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("DELETE = %d: %s", rec.Code, rec.Body.String())
+	}
+	if rec.Header().Get("HX-Refresh") != "true" {
+		t.Errorf("HX-Refresh = %q", rec.Header().Get("HX-Refresh"))
+	}
+
+	// The whole section goes: heading, prose, fence, result, trailing prose.
+	got := h.contents()
+	want := front + "Opening.\n\n## B\n\n```echo\nb\n```\n"
+	if got != want {
+		t.Errorf("notebook:\n got %q\nwant %q", got, want)
+	}
+	// The preamble, which belongs to no cell, survives.
+	if !strings.Contains(got, "Opening.\n") {
+		t.Error("the preamble was lost")
+	}
+}
+
+func TestDeleteLastCell(t *testing.T) {
+	h := newHarness(t, "Opening.\n\n## Only\n\n```echo\na\n```\n")
+	if rec := h.do(http.MethodDelete, "/cells/0", nil); rec.Code != http.StatusOK {
+		t.Fatalf("DELETE = %d: %s", rec.Code, rec.Body.String())
+	}
+	nb := mustParse(t, h.contents())
+	if len(nb.Cells()) != 0 {
+		t.Errorf("got %d cells, want 0", len(nb.Cells()))
+	}
+	// A notebook with no cells is still a notebook, and still editable.
+	if !strings.Contains(h.get("/").Body.String(), "prose-preamble") {
+		t.Error("the emptied notebook is no longer editable")
+	}
+}
+
+func TestDeleteCellErrors(t *testing.T) {
+	h := newHarness(t, "## A\n\n```echo\na\n```\n")
+	before := h.contents()
+	for _, target := range []string{"/cells/9", "/cells/abc", "/cells/-1"} {
+		rec := h.do(http.MethodDelete, target, nil)
+		if rec.Code != http.StatusBadRequest {
+			t.Errorf("DELETE %s = %d, want %d", target, rec.Code, http.StatusBadRequest)
+		}
+	}
+	if h.contents() != before {
+		t.Error("nothing should have been written")
+	}
+}
+
+func TestPageOffersAddAndDelete(t *testing.T) {
+	h := newHarness(t, "## A\n\n```echo\na\n```\n")
+	body := h.get("/").Body.String()
+
+	for _, want := range []string{
+		`hx-post="/cells/add"`,
+		`name="heading"`,
+		`name="body"`,
+		`hx-delete="/cells/0"`,
+		// Deleting a cell is irreversible, so it asks first.
+		"hx-confirm=",
+		"after cell 0",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("page missing %q", want)
+		}
+	}
+
+	// With no cells there is nowhere to insert but the end, so the selector is gone.
+	empty := newHarness(t, "")
+	eb := empty.get("/").Body.String()
+	if !strings.Contains(eb, `hx-post="/cells/add"`) {
+		t.Error("an empty notebook should still offer add")
+	}
+	if strings.Contains(eb, `name="after"`) {
+		t.Error("the position selector should be omitted when there is nowhere to choose")
+	}
+}
+
+func TestAddDeleteRoundTripKeepsOtherCellsIntact(t *testing.T) {
+	h := newHarness(t, "## Keep\n\n```echo\nkeep\n```\n\n```output {run=\"x\"}\nkept result\n```\n")
+
+	if rec := h.do(http.MethodPost, "/cells/add", url.Values{
+		"heading": {"Temp"}, "body": {"t\n"},
+	}); rec.Code != http.StatusOK {
+		t.Fatal(rec.Body.String())
+	}
+	if rec := h.do(http.MethodDelete, "/cells/1", nil); rec.Code != http.StatusOK {
+		t.Fatal(rec.Body.String())
+	}
+
+	got := h.contents()
+	// The surviving cell and its result are byte-identical.
+	if !strings.Contains(got, "```echo\nkeep\n```") {
+		t.Errorf("the kept cell changed:\n%s", got)
+	}
+	if !strings.Contains(got, "```output {run=\"x\"}\nkept result\n```") {
+		t.Errorf("the kept result changed:\n%s", got)
+	}
+	if n := len(mustParse(t, got).Cells()); n != 1 {
+		t.Errorf("got %d cells, want 1", n)
+	}
+}
+
+// TestNewCellTagDefaultsToTheExecutors is why WithLang is rarely needed: the tag comes
+// from the scheduler, so a tool cannot forget it and offer to create unrunnable cells.
+func TestNewCellTagDefaultsToTheExecutors(t *testing.T) {
+	h := newHarness(t, "")
+	if !strings.Contains(h.get("/").Body.String(), `value="echo"`) {
+		t.Errorf("the form does not offer the executor's tag:\n%s", h.get("/").Body.String())
+	}
+	if rec := h.do(http.MethodPost, "/cells/add", url.Values{"heading": {"H"}}); rec.Code != http.StatusOK {
+		t.Fatal(rec.Body.String())
+	}
+	if !strings.Contains(h.contents(), "```echo\n") {
+		t.Errorf("new cell got the wrong tag:\n%s", h.contents())
+	}
+}
+
+func TestWithLangOption(t *testing.T) {
+	h := newHarness(t, "", WithLang("cypher"))
+	if !strings.Contains(h.get("/").Body.String(), `value="cypher"`) {
+		t.Errorf("WithLang not reflected in the form:\n%s", h.get("/").Body.String())
+	}
+	if rec := h.do(http.MethodPost, "/cells/add", url.Values{"heading": {"H"}}); rec.Code != http.StatusOK {
+		t.Fatal(rec.Body.String())
+	}
+	if !strings.Contains(h.contents(), "```cypher\n") {
+		t.Errorf("new cell got the wrong tag:\n%s", h.contents())
+	}
+}

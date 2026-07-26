@@ -5,6 +5,8 @@ import (
 	"errors"
 	"strings"
 	"testing"
+
+	"github.com/pmuston/notekit/meta"
 )
 
 func asError(err error, target any) bool { return errors.As(err, target) }
@@ -557,5 +559,407 @@ func TestRunLen(t *testing.T) {
 		if got := runLen(tt.s, tt.ch); got != tt.want {
 			t.Errorf("runLen(%q, %q) = %d, want %d", tt.s, tt.ch, got, tt.want)
 		}
+	}
+}
+
+func TestAppendCell(t *testing.T) {
+	tests := []struct {
+		name string
+		body string
+		want string
+	}{
+		{
+			name: "into an empty notebook",
+			body: "",
+			want: "## New\n\n```sh\necho hi\n```\n",
+		},
+		{
+			name: "into a prose-only notebook",
+			body: "Just prose.\n",
+			want: "Just prose.\n\n## New\n\n```sh\necho hi\n```\n",
+		},
+		{
+			name: "after an existing cell",
+			body: "## First\n\n```sh\na\n```\n",
+			want: "## First\n\n```sh\na\n```\n\n## New\n\n```sh\necho hi\n```\n",
+		},
+		{
+			name: "after a cell with a result",
+			body: "## First\n\n```sh\na\n```\n\n```output\nr\n```\n",
+			want: "## First\n\n```sh\na\n```\n\n```output\nr\n```\n\n## New\n\n```sh\necho hi\n```\n",
+		},
+		{
+			// No trailing newline: the insertion has to end the line first.
+			name: "when the file does not end with a newline",
+			body: "## First\n\n```sh\na\n```",
+			want: "## First\n\n```sh\na\n```\n\n## New\n\n```sh\necho hi\n```\n",
+		},
+		{
+			name: "when the file already ends with a blank line",
+			body: "## First\n\n```sh\na\n```\n\n",
+			want: "## First\n\n```sh\na\n```\n\n## New\n\n```sh\necho hi\n```\n",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			n := mustParse(t, front+tt.body)
+			before := len(n.Cells())
+
+			edit, err := n.AppendCell(NewCell{Heading: "New", Lang: "sh", Body: "echo hi\n"})
+			if err != nil {
+				t.Fatalf("AppendCell: %v", err)
+			}
+			out, err := n.Apply(edit)
+			if err != nil {
+				t.Fatalf("Apply: %v", err)
+			}
+			if got, want := string(out), front+tt.want; got != want {
+				t.Fatalf("got %q, want %q", got, want)
+			}
+
+			n2 := mustParse(t, string(out))
+			if len(n2.Cells()) != before+1 {
+				t.Fatalf("cell count %d -> %d, want +1", before, len(n2.Cells()))
+			}
+			last := n2.Cells()[len(n2.Cells())-1]
+			if last.HeadingText != "New" || last.Lang != "sh" || last.SourceText() != "echo hi\n" {
+				t.Errorf("new cell = %#v", last)
+			}
+			if !last.Closed {
+				t.Error("the new cell's fence is not closed")
+			}
+		})
+	}
+}
+
+func TestInsertCellAroundAnExistingCell(t *testing.T) {
+	body := "## First\n\n```sh\na\n```\n\n## Second\n\n```sh\nb\n```\n"
+
+	t.Run("after the first", func(t *testing.T) {
+		n := mustParse(t, front+body)
+		edit, err := n.InsertCellAfter(n.Cells()[0], NewCell{Heading: "Middle", Lang: "sh", Body: "m\n"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		out, err := n.Apply(edit)
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := front + "## First\n\n```sh\na\n```\n\n## Middle\n\n```sh\nm\n```\n\n## Second\n\n```sh\nb\n```\n"
+		if string(out) != want {
+			t.Fatalf("got %q\nwant %q", out, want)
+		}
+		cells := mustParse(t, string(out)).Cells()
+		headings := []string{cells[0].HeadingText, cells[1].HeadingText, cells[2].HeadingText}
+		if headings[0] != "First" || headings[1] != "Middle" || headings[2] != "Second" {
+			t.Errorf("order = %v", headings)
+		}
+	})
+
+	t.Run("before the first", func(t *testing.T) {
+		n := mustParse(t, front+body)
+		edit, err := n.InsertCellBefore(n.Cells()[0], NewCell{Heading: "Zeroth", Lang: "sh", Body: "z\n"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		out, err := n.Apply(edit)
+		if err != nil {
+			t.Fatal(err)
+		}
+		cells := mustParse(t, string(out)).Cells()
+		if len(cells) != 3 || cells[0].HeadingText != "Zeroth" {
+			t.Errorf("first cell = %q, want Zeroth (%d cells)", cells[0].HeadingText, len(cells))
+		}
+		// The preamble must not have been swallowed into the new section.
+		if !strings.Contains(string(out), front+"## Zeroth\n") {
+			t.Errorf("unexpected layout:\n%s", out)
+		}
+	})
+
+	t.Run("before the second", func(t *testing.T) {
+		n := mustParse(t, front+body)
+		edit, err := n.InsertCellBefore(n.Cells()[1], NewCell{Heading: "Middle", Lang: "sh", Body: "m\n"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		out, err := n.Apply(edit)
+		if err != nil {
+			t.Fatal(err)
+		}
+		cells := mustParse(t, string(out)).Cells()
+		if len(cells) != 3 || cells[1].HeadingText != "Middle" {
+			t.Errorf("cells = %v", cells)
+		}
+	})
+}
+
+func TestInsertCellPreservesEverythingElse(t *testing.T) {
+	body := "Opening.\n\n## First\n\n prose\n\n```sh\na\n```\n\n```output {run=\"x\"}\nr\n```\n\ntrailing\n"
+	n := mustParse(t, front+body)
+
+	edit, err := n.AppendCell(NewCell{Heading: "New", Lang: "sh", Body: "n\n"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := n.Apply(edit)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Everything that was there is byte-identical; only an insertion happened.
+	if !strings.HasPrefix(string(out), front+body) {
+		t.Errorf("existing content changed:\n%s", out)
+	}
+	n2 := mustParse(t, string(out))
+	if got := string(n2.Cells()[0].Results[0].Span.In(n2.Bytes())); !strings.Contains(got, `run="x"`) {
+		t.Errorf("the existing result changed: %q", got)
+	}
+}
+
+func TestNewCellMetadataAndLevels(t *testing.T) {
+	n := mustParse(t, front+"## First\n\n```sh\na\n```\n")
+
+	edit, err := n.AppendCell(NewCell{
+		Heading: "Table", Level: 3, Lang: "sh",
+		Meta: []meta.Entry{{Key: "format", Value: "csv"}},
+		Body: "printf 'a,b\\n'\n",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := n.Apply(edit)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(out), "### Table\n\n```sh {format=csv}\n") {
+		t.Errorf("level or metadata wrong:\n%s", out)
+	}
+	c := mustParse(t, string(out)).Cells()[1]
+	if c.Level != 3 {
+		t.Errorf("Level = %d, want 3", c.Level)
+	}
+	if e, ok := c.Meta.Get("format"); !ok || e.Value != "csv" {
+		t.Errorf("format = %#v", e)
+	}
+}
+
+func TestNewCellFenceWidening(t *testing.T) {
+	// Fence-length safety applies to a new cell's fence too.
+	n := mustParse(t, front+"")
+	edit, err := n.AppendCell(NewCell{Heading: "H", Lang: "sh", Body: "echo '```'\n"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := n.Apply(edit)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(out), "````sh\n") {
+		t.Errorf("fence not widened:\n%s", out)
+	}
+	cells := mustParse(t, string(out)).Cells()
+	if len(cells) != 1 || cells[0].SourceText() != "echo '```'\n" {
+		t.Errorf("cells = %#v", cells)
+	}
+}
+
+func TestNewCellEmptyHeadingAndBody(t *testing.T) {
+	n := mustParse(t, front+"")
+	edit, err := n.AppendCell(NewCell{Lang: "sh"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := n.Apply(edit)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// `##` alone is a valid ATX heading, and an empty slug is permitted (§5.2).
+	if got, want := string(out), front+"##\n\n```sh\n```\n"; got != want {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+	cells := mustParse(t, string(out)).Cells()
+	if len(cells) != 1 {
+		t.Fatalf("got %d cells, want 1", len(cells))
+	}
+	if cells[0].Slug != "" || cells[0].HeadingText != "" {
+		t.Errorf("cell = %#v", cells[0])
+	}
+}
+
+func TestNewCellValidation(t *testing.T) {
+	n := mustParse(t, front+"## A\n\n```sh\na\n```\n")
+	tests := []struct {
+		name string
+		spec NewCell
+	}{
+		{"no language tag", NewCell{Heading: "H"}},
+		// §4.3: a section whose first fence is tagged output or error holds no cell,
+		// so creating one would produce a cell that is not a cell.
+		{"output tag", NewCell{Heading: "H", Lang: "output"}},
+		{"error tag", NewCell{Heading: "H", Lang: "error"}},
+		{"level 1", NewCell{Heading: "H", Level: 1, Lang: "sh"}},
+		{"level 7", NewCell{Heading: "H", Level: 7, Lang: "sh"}},
+		{"newline in heading", NewCell{Heading: "one\ntwo", Lang: "sh"}},
+		{"tag with a space", NewCell{Heading: "H", Lang: "s h"}},
+		{"invalid metadata key", NewCell{Heading: "H", Lang: "sh", Meta: []meta.Entry{{Key: "Bad", Value: "1"}}}},
+		{"duplicate metadata keys", NewCell{Heading: "H", Lang: "sh",
+			Meta: []meta.Entry{{Key: "a", Value: "1"}, {Key: "a", Value: "2"}}}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if _, err := n.AppendCell(tt.spec); err == nil {
+				t.Error("want error")
+			}
+		})
+	}
+	if _, err := n.InsertCellAfter(nil, NewCell{Heading: "H", Lang: "sh"}); err == nil {
+		t.Error("InsertCellAfter(nil) = nil error, want error")
+	}
+	if _, err := n.InsertCellBefore(nil, NewCell{Heading: "H", Lang: "sh"}); err == nil {
+		t.Error("InsertCellBefore(nil) = nil error, want error")
+	}
+}
+
+func TestDeleteCell(t *testing.T) {
+	tests := []struct {
+		name  string
+		body  string
+		index int
+		want  string
+	}{
+		{
+			name:  "the only cell",
+			body:  "Opening.\n\n## Only\n\n```sh\na\n```\n",
+			index: 0,
+			want:  "Opening.\n\n",
+		},
+		{
+			name:  "the first of two",
+			body:  "## First\n\n```sh\na\n```\n\n## Second\n\n```sh\nb\n```\n",
+			index: 0,
+			want:  "## Second\n\n```sh\nb\n```\n",
+		},
+		{
+			name:  "the last of two",
+			body:  "## First\n\n```sh\na\n```\n\n## Second\n\n```sh\nb\n```\n",
+			index: 1,
+			want:  "## First\n\n```sh\na\n```\n\n",
+		},
+		{
+			name:  "the middle of three",
+			body:  "## A\n\n```sh\na\n```\n\n## B\n\n```sh\nb\n```\n\n## C\n\n```sh\nc\n```\n",
+			index: 1,
+			want:  "## A\n\n```sh\na\n```\n\n## C\n\n```sh\nc\n```\n",
+		},
+		{
+			// The whole section goes: heading, prose, fence, result, trailing prose.
+			name:  "a cell with prose and a result",
+			body:  "## A\n\nbefore\n\n```sh\na\n```\n\n```output\nr\n```\n\nafter\n\n## B\n\n```sh\nb\n```\n",
+			index: 0,
+			want:  "## B\n\n```sh\nb\n```\n",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			n := mustParse(t, front+tt.body)
+			before := len(n.Cells())
+
+			edit, err := n.DeleteCell(n.Cells()[tt.index])
+			if err != nil {
+				t.Fatalf("DeleteCell: %v", err)
+			}
+			out, err := n.Apply(edit)
+			if err != nil {
+				t.Fatalf("Apply: %v", err)
+			}
+			if got, want := string(out), front+tt.want; got != want {
+				t.Fatalf("got %q, want %q", got, want)
+			}
+			n2 := mustParse(t, string(out))
+			if len(n2.Cells()) != before-1 {
+				t.Errorf("cell count %d -> %d, want -1", before, len(n2.Cells()))
+			}
+		})
+	}
+}
+
+func TestDeleteCellNil(t *testing.T) {
+	n := mustParse(t, front+"## A\n\n```sh\na\n```\n")
+	if _, err := n.DeleteCell(nil); err == nil {
+		t.Error("DeleteCell(nil) = nil error, want error")
+	}
+}
+
+// TestDeleteTouchesOnlyTheSection is the invariant that matters: delete removes exactly
+// the section span and not one byte more.
+func TestDeleteTouchesOnlyTheSection(t *testing.T) {
+	src := front + "Opening.\n\n## A\n\n```sh\na\n```\n\n## B\n\n```sh\nb\n```\n\n## C\n\n```sh\nc\n```\n"
+	n := mustParse(t, src)
+	target := n.Cells()[1]
+
+	edit, err := n.DeleteCell(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := n.Apply(edit)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertUntouchedOutside(t, n.Bytes(), out, target.Section.Start, target.Section.End)
+}
+
+// TestAppendThenDeleteRestoresEveryCell records what append-then-delete actually
+// guarantees, which is not byte identity.
+//
+// Append seats the new heading with a blank line above it, and that blank line becomes
+// part of the *previous* section — so deleting the new cell correctly leaves it alone,
+// and the file ends one newline longer than it started. Absorbing it would mean a delete
+// reaching outside the section it was asked to remove, which §10 does not permit and
+// which would be deleting whitespace the user may have put there. Accumulating a blank
+// line is the more conservative outcome, and round-trip identity is untouched either way.
+func TestAppendThenDeleteRestoresEveryCell(t *testing.T) {
+	src := front + "Opening.\n\n## First\n\n```sh\na\n```\n\n```output\nr\n```\n\ntrailing\n"
+	n := mustParse(t, src)
+
+	edit, err := n.AppendCell(NewCell{Heading: "Temp", Lang: "sh", Body: "t\n"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	withCell, err := n.Apply(edit)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	n2 := mustParse(t, string(withCell))
+	cells := n2.Cells()
+	del, err := n2.DeleteCell(cells[len(cells)-1])
+	if err != nil {
+		t.Fatal(err)
+	}
+	back, err := n2.Apply(del)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if strings.TrimRight(string(back), "\n") != strings.TrimRight(src, "\n") {
+		t.Errorf("content differs beyond trailing whitespace:\n got %q\nwant %q", back, src)
+	}
+	// Every original cell survives byte-for-byte.
+	n3 := mustParse(t, string(back))
+	orig := mustParse(t, src)
+	if len(n3.Cells()) != len(orig.Cells()) {
+		t.Fatalf("cell count %d, want %d", len(n3.Cells()), len(orig.Cells()))
+	}
+	for i, c := range orig.Cells() {
+		got := n3.Cells()[i]
+		if got.HeadingText != c.HeadingText || got.SourceText() != c.SourceText() {
+			t.Errorf("cell %d changed: %q/%q -> %q/%q",
+				i, c.HeadingText, c.SourceText(), got.HeadingText, got.SourceText())
+		}
+	}
+	// And it still round-trips, which is the normative property (§10).
+	if string(n3.Bytes()) != string(back) {
+		t.Error("the result does not round-trip")
 	}
 }

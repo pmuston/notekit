@@ -22,6 +22,8 @@
   {{template "prose" .Preamble}}
 
   {{range .Cells}}{{template "cell" .}}{{end}}
+
+  {{template "addcell" .AddCell}}
 </main>
 </body>
 </html>{{end}}

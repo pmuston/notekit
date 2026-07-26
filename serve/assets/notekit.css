@@ -154,6 +154,33 @@ textarea.nk-prose-edit {
 }
 .nk-dirty[data-dirty="true"] { visibility: visible; }
 
+/* Add-cell form and destructive controls */
+.nk-addcell {
+  margin: 3rem 0 0;
+  padding: 1.25rem;
+  border: 1px dashed var(--nk-border);
+  border-radius: 8px;
+}
+.nk-addcell-title { font-size: 1rem; margin: 0 0 0.75rem; }
+.nk-field { display: block; margin: 0 0 0.75rem; }
+.nk-field > span {
+  display: block;
+  font-size: 0.78rem;
+  color: var(--nk-muted);
+  margin-bottom: 0.25rem;
+}
+.nk-field input[type="text"], .nk-field select {
+  width: 100%;
+  font: inherit;
+  font-size: 0.9rem;
+  padding: 0.4rem 0.5rem;
+  border: 1px solid var(--nk-border);
+  border-radius: 5px;
+  background: var(--nk-bg);
+  color: var(--nk-fg);
+}
+.nk-btn-danger:hover { border-color: var(--nk-error-fg); color: var(--nk-error-fg); }
+
 .nk-flash {
   position: fixed;
   bottom: 1rem; left: 50%;

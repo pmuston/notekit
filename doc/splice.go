@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+
+	"github.com/pmuston/notekit/meta"
 )
 
 // Edit replaces one byte range with new text. An edit with an empty span is an
@@ -174,4 +176,154 @@ func runLen(s string, ch byte) int {
 		run = 0
 	}
 	return longest
+}
+
+// NewCell describes a cell to insert (§10 f).
+//
+// A new cell is a heading plus a source fence and nothing else. Deliberately so: a tool
+// that also invented prose, metadata, or a placeholder result would be writing content
+// the user did not ask for, into a file whose whole point is that the user owns it.
+type NewCell struct {
+	// Heading is the heading text, without the leading #'s. It may be empty — `##`
+	// alone is a valid ATX heading, and an empty slug is permitted (§5.2) — but it
+	// must not contain a newline, which would end the heading line early.
+	Heading string
+
+	// Level is the ATX heading level, 2–6 (§4). Zero means 2, which §4 recommends.
+	Level int
+
+	// Lang is the info-string tag the executor will match on.
+	Lang string
+
+	// Meta is optional source-fence metadata, e.g. a `format` rendering hint. The
+	// format assigns no meaning to any of it (§9).
+	Meta []meta.Entry
+
+	// Body is the cell's source. It may be empty.
+	Body string
+}
+
+// AppendCell returns the edit that adds a cell at the end of the notebook.
+func (n *Notebook) AppendCell(spec NewCell) (Edit, error) {
+	return n.insertCellAt(spec, len(n.src))
+}
+
+// InsertCellAfter returns the edit that adds a cell immediately after c's section.
+//
+// A section runs to the next heading of any level (§4.1), so its end is exactly a section
+// boundary — which is the only place a new heading can go without splitting an existing
+// cell in two.
+func (n *Notebook) InsertCellAfter(c *Cell, spec NewCell) (Edit, error) {
+	if c == nil {
+		return Edit{}, fmt.Errorf("notekit: InsertCellAfter needs a cell")
+	}
+	return n.insertCellAt(spec, c.Section.End)
+}
+
+// InsertCellBefore returns the edit that adds a cell immediately before c's section.
+func (n *Notebook) InsertCellBefore(c *Cell, spec NewCell) (Edit, error) {
+	if c == nil {
+		return Edit{}, fmt.Errorf("notekit: InsertCellBefore needs a cell")
+	}
+	return n.insertCellAt(spec, c.Section.Start)
+}
+
+// DeleteCell returns the edit that removes a cell and everything else in its section:
+// its heading, its prose, its source fence, and its results.
+//
+// That is what "delete this cell" means — a section is the unit §4.1 defines, and leaving
+// a heading behind with no fence, or prose belonging to a cell that no longer exists,
+// would be a stranger outcome than removing the lot. To clear only a result, use
+// [Cell.SetResult] with an empty string.
+func (n *Notebook) DeleteCell(c *Cell) (Edit, error) {
+	if c == nil {
+		return Edit{}, fmt.Errorf("notekit: DeleteCell needs a cell")
+	}
+	return Edit{Span: c.Section, Text: ""}, nil
+}
+
+// insertCellAt builds the insertion, including the whitespace needed to seat a heading at
+// a byte offset that may or may not be at a line start.
+func (n *Notebook) insertCellAt(spec NewCell, at int) (Edit, error) {
+	if at < n.body.Start {
+		at = n.body.Start
+	}
+	if at > len(n.src) {
+		at = len(n.src)
+	}
+
+	block, err := spec.render()
+	if err != nil {
+		return Edit{}, err
+	}
+
+	// A heading must begin a line, and reads far better with a blank line above it.
+	var pre string
+	switch {
+	case at == 0 || at == n.body.Start:
+		pre = ""
+	case n.src[at-1] != '\n':
+		// Not at a line start: end the current line, then leave a blank one.
+		pre = "\n\n"
+	case at == 1 || n.src[at-2] == '\n':
+		pre = "" // a blank line is already there
+	default:
+		pre = "\n"
+	}
+
+	// Separate from whatever follows, unless it already begins with a blank line.
+	var post string
+	if at < len(n.src) && n.src[at] != '\n' {
+		post = "\n"
+	}
+
+	return Edit{Span: Span{Start: at, End: at}, Text: pre + block + post}, nil
+}
+
+// render turns a spec into the bytes of a cell.
+func (spec NewCell) render() (string, error) {
+	level := spec.Level
+	if level == 0 {
+		level = 2
+	}
+	if level < 2 || level > 6 {
+		return "", fmt.Errorf("notekit: heading level %d is out of range (2–6, §4)", level)
+	}
+	if strings.ContainsAny(spec.Heading, "\r\n") {
+		return "", fmt.Errorf("notekit: a heading cannot contain a newline")
+	}
+	// A fence tagged output or error is not a source fence — as a section's first fence
+	// it suppresses the cell entirely (§4.3) — so creating one would produce a cell that
+	// is not a cell.
+	switch spec.Lang {
+	case "":
+		return "", fmt.Errorf("notekit: a cell needs a language tag (§4)")
+	case "output", "error":
+		return "", fmt.Errorf("notekit: %q is a result tag, not a language tag; "+
+			"a section whose first fence is tagged %q contains no cell (§4.3)",
+			spec.Lang, spec.Lang)
+	}
+
+	info, err := meta.Format(spec.Lang, spec.Meta, nil)
+	if err != nil {
+		return "", fmt.Errorf("notekit: building the source fence: %w", err)
+	}
+
+	body := spec.Body
+	if body != "" && !strings.HasSuffix(body, "\n") {
+		body += "\n"
+	}
+	// Fence-length safety applies to a source fence as much as to a result (§6).
+	fenceLen := runLen(body, '`') + 1
+	if fenceLen < 3 {
+		fenceLen = 3
+	}
+	fence := strings.Repeat("`", fenceLen)
+
+	heading := strings.Repeat("#", level)
+	if spec.Heading != "" {
+		heading += " " + spec.Heading
+	}
+
+	return heading + "\n\n" + fence + info + "\n" + body + fence + "\n", nil
 }

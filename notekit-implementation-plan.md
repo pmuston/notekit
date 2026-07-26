@@ -5,10 +5,9 @@
 > milestone list glosses over, and lists the spec questions each stage will force.
 > Not normative: the three specs govern. This document is disposable once M3 lands.
 
-Status: draft · **M0–M3 complete**, with two parity gaps deliberately deferred (§6).
-Every spec question is resolved except §8.7, the priortool sidecar verification, which needs
-a sidecar-producing tool to matter. This document is now disposable per its own preamble;
-the specs govern.
+Status: draft · **M0–M3 complete, at functional v1 parity.** Every spec question is
+resolved except §8.7, the priortool sidecar verification, which needs a sidecar-producing
+tool to matter. This document is now disposable per its own preamble; the specs govern.
 
 ---
 
@@ -302,7 +301,7 @@ Design notes:
   the moment anything runs. The file is the artifact; reading it is the honest way to
   know what it says.
 
-## 6. M3 — clinote v2 — ✅ COMPLETE, with two gaps deferred
+## 6. M3 — clinote v2 — ✅ COMPLETE
 
 First real consumer, and the test of whether the kit's boundaries are right.
 
@@ -364,19 +363,44 @@ between cells.
 ### Parity: honest status
 
 Gate 3 is *functional* parity with v1, not file-level (harvest D8). Comparing v1's route
-surface, v2 now matches it except for two features, both deferred rather than forgotten:
+surface, v2 now matches it: run, run-all, cancel, result rendering with live colour and
+sortable tables, prose editing with an unsaved indicator, source editing, add a cell,
+delete a cell, auto-save, output cap with truncation, exit-status capture, embedded assets.
 
-- **Add a cell** and **delete a block.** These change document *structure* rather than the
-  contents of an existing construct, which is a different splice shape from everything
-  built so far — and the format has no "append a cell" rule to follow, so it needs a
-  decision about where a new heading and fence go relative to surrounding prose. Worth
-  doing deliberately rather than by analogy.
-- A **web picker**. v2 has a CLI picker instead, which covers the same need for a
-  single-notebook tool.
+One deliberate difference remains: v1 had a **web picker**, v2 has a CLI one. For a tool
+that serves a single notebook per process, choosing before the server starts is the
+simpler place to choose.
 
-Everything else v1 offered is present: run, run-all, cancel, result rendering with live
-colour and sortable tables, prose editing with an unsaved indicator, source editing,
-auto-save, output cap with truncation, exit-status capture, embedded assets.
+### Add and delete: what they forced
+
+Deferring these was right — each raised something a hasty version would have got wrong.
+
+- **§10 was out of date**, and my own M3 work had made it so: the list of permitted writes
+  named results, sidecars, `id` and prose, but not source-body edits. It is now grouped
+  into writes a *run* makes and writes a *user* asks for, and includes both source edits
+  and section insert/remove. The grouping is the point — it explains why the list is
+  closed rather than arbitrary.
+- **A new cell is a heading plus a fence and nothing else.** A tool that also invented
+  prose or a placeholder result would be writing content the user did not ask for into a
+  file whose whole premise is that the user owns it.
+- **Creating a cell tagged `output` or `error` is refused.** §4.3 says a section whose
+  first fence carries a result tag contains no cell, so the tool would be creating a cell
+  that is not one.
+- **Append-then-delete is not byte-identical**, and should not be. Append seats the new
+  heading with a blank line above it, which becomes part of the *previous* section — so
+  deleting the new cell correctly leaves it alone and the file ends one newline longer.
+  Absorbing it would mean a delete reaching outside the section it was asked to remove.
+  `TestAppendThenDeleteRestoresEveryCell` records what actually holds.
+- **The scheduler was caching its parse**, which the add-cell work exposed as a
+  corruption bug rather than a staleness annoyance. `run` is not the only writer: `serve`
+  edits prose, sources and structure, and a person may have the notebook open in an
+  editor. A cached parse leaves a splice working from byte offsets that no longer describe
+  the file — and because the offsets are still *in range*, it writes to the wrong place
+  instead of failing. Every read of the parse state now re-reads the file first, which
+  costs one read per run against executing a command. Two tests cover it, including bytes
+  inserted *above* the cell being run so every offset below shifts.
+- **The new-cell tag comes from the scheduler**, not from a `serve` option. A tool that
+  forgot to set it would silently offer to create cells nothing could run.
 
 ## 7. Testing strategy
 

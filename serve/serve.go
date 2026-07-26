@@ -56,6 +56,7 @@ type Server struct {
 	registry *kind.Registry
 	path     string
 	title    string
+	lang     string
 	base     string
 	poll     time.Duration
 	tmpl     *template.Template
@@ -83,6 +84,15 @@ func WithPollInterval(d time.Duration) Option {
 			s.poll = d
 		}
 	}
+}
+
+// WithLang overrides the language tag new cells are created with.
+//
+// It is rarely needed: the tag defaults to whatever the notebook's executor claims, asked
+// of the scheduler, so the add-cell form cannot offer a tag nothing can run. Set it only
+// when a tool wants something other than its executor's own tag.
+func WithLang(lang string) Option {
+	return func(s *Server) { s.lang = lang }
 }
 
 // WithTitle overrides the displayed title, which otherwise comes from the notebook's
@@ -131,6 +141,15 @@ func New(sched *run.Scheduler, notebookPath string, opts ...Option) (*Server, er
 	if _, err := s.sched.Cells(s.path); err != nil {
 		return nil, fmt.Errorf("serve: %w", err)
 	}
+	// Default the new-cell tag to the executor's own, so a tool cannot forget and end
+	// up offering to create cells nothing can run.
+	if s.lang == "" {
+		lang, err := s.sched.Lang(s.path)
+		if err != nil {
+			return nil, fmt.Errorf("serve: %w", err)
+		}
+		s.lang = lang
+	}
 	return s, nil
 }
 
@@ -146,6 +165,8 @@ func (s *Server) Register(e *echo.Echo) {
 	g.POST("/runs/:id/cancel", s.handleCancel)
 	g.GET("/cells/:index/source", s.handleSourceGet)
 	g.PUT("/cells/:index/source", s.handleSourcePut)
+	g.POST("/cells/add", s.handleAddCell)
+	g.DELETE("/cells/:index", s.handleDeleteCell)
 	g.GET("/prose/:ref", s.handleProseGet)
 	g.PUT("/prose/:ref", s.handleProsePut)
 	g.GET("/sidecar/:name", s.handleSidecar)
