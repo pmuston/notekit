@@ -320,7 +320,7 @@ func TestNewWritesARunnableStarterCell(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "parts-list.md")
 
-	if err := notetool.Create(path, starterCell("sql")); err != nil {
+	if err := notetool.Create(path, "sqlnote", starterCell("sql")); err != nil {
 		t.Fatalf("createNotebook: %v", err)
 	}
 
@@ -362,7 +362,7 @@ func TestNewRefusesToOverwrite(t *testing.T) {
 		t.Fatal(err)
 	}
 	// The file is the artifact, so a mistyped path must never destroy one.
-	if err := notetool.Create(path, starterCell("sql")); err == nil {
+	if err := notetool.Create(path, "sqlnote", starterCell("sql")); err == nil {
 		t.Fatal("want an error for an existing file")
 	}
 	got, err := os.ReadFile(path)

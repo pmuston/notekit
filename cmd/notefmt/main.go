@@ -25,6 +25,7 @@ import (
 	"text/tabwriter"
 
 	"github.com/pmuston/notekit/doc"
+	"github.com/pmuston/notekit/internal/notetool"
 )
 
 const usage = `notefmt inspects and lints notekit notebooks.
@@ -174,6 +175,15 @@ func checkFile(path string, rep *report, stdout io.Writer) error {
 		rep.errorf(path, "applying no edits failed: %v", applyErr)
 	} else if string(out) != string(src) {
 		rep.errorf(path, "round trip is not byte-identical")
+	}
+
+	// An advisory `notekit-tool` that contradicts the cells (§2.1). A warning, never an
+	// error: the key takes no part in deciding what runs, so a stale value makes a file
+	// misleading rather than malformed — and notefmt reports what is legal but worth
+	// saying. It is also the only check here that can catch the key drifting, since the
+	// key is hand-editable and nothing forces it to keep up with the cells.
+	if warn := notetool.ToolKeyWarning(n); warn != "" {
+		rep.warnf(path, "%s", warn)
 	}
 
 	results := 0

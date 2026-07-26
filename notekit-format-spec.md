@@ -55,6 +55,7 @@ Reserved keys (the complete set):
 |---|---|---|
 | `notekit` | yes | Format version. Integer. This spec defines `1`. |
 | `title` | no | Notebook title. Tools may display it; absence is not an error. |
+| `notekit-tool` | no | Advisory: the tool the notebook was written for (§2.1). Reserved so tools agree on its spelling; it never decides what runs. |
 
 All other keys are **passthrough**: preserved byte-for-byte on round-trip, exposed
 to the runtime uninterpreted. Tool-specific keys should be namespaced by convention
@@ -63,54 +64,79 @@ to the runtime uninterpreted. Tool-specific keys should be namespaced by convent
 A file without front matter, or without `notekit: 1`, is not a notekit notebook.
 Conforming tools must refuse it rather than guess.
 
-### 2.1 No key names the runner
+### 2.1 The engine is derived; `notekit-tool` is advisory
 
-**Nothing in front matter identifies which notebook application should run a file, and
-nothing should be added that does.** A notebook's engine is *derived* from the
-info-string tags its cells already carry (§9): a file of `sql` cells is a SQL notebook
-because its cells say `sql`, not because a key says so.
+Two rules that must not be confused:
 
-This was considered and rejected, and the reasoning is recorded here because the idea
-recurs naturally — with several tools in a kit, a `notekit-app: sqlnote` key looks
-obviously useful.
+- **What a notebook can run is derived from the info-string tags its cells carry**
+  (§9), decided per cell by comparing each tag with the executor's. A file of `sql`
+  cells is a SQL notebook because its cells say `sql`. This is normative, and nothing
+  in front matter takes part in it.
+- **`notekit-tool` names the application a notebook was written for, as a hint.** It is
+  reserved so that tools agree on its spelling, and it is **advisory**: it never
+  decides what runs.
 
-Three reasons against it:
+#### Why the engine is derived rather than declared
 
-1. **It is redundant, and redundancy needs a conflict rule.** The engine is already
-   stated once per cell. A notebook-level key is derived data that can disagree with
-   its source — front matter saying `sqlnote` above `sh` cells — so the format would
-   have to define which one wins. That is structurally the mistake D1 made: two jobs
-   conflated into one field, failing quietly. See the identity split in §5, which
-   exists because that failure mode already cost this format one redesign.
-2. **It couples the file to a binary.** The file is the artifact and any application is
-   merely a runner over it. A key naming the runner inverts that, and ties a notebook
-   to whatever a tool happened to be called when the file was written.
-3. **Deferring is free; adopting is permanent.** Unknown front-matter keys are
-   passthrough, so such a key can be introduced later with no format change at all.
-   But once notebooks in the wild carry it, every tool must honour it forever. The
-   risk is asymmetric, and the cheap direction is to wait.
+A declaration that *decided* the engine was considered and rejected. The reasoning is
+recorded because the idea recurs naturally:
 
-**Consequence, and it is not incidental:** a notebook with *no* cells has no tag to
-derive an engine from. This is the one case derivation cannot answer, which is why a
-tool's notebook-creating command writes a starter cell of its own language rather than
-an empty file (§10 f governs its shape). The starter cell is what keeps every
-notebook's engine knowable from the moment it exists.
+1. **It would be redundant, and redundancy needs a conflict rule.** The engine is
+   already stated once per cell. A key competing with those tags would force the format
+   to define which wins — structurally the mistake D1 made, two jobs conflated into one
+   field, failing quietly. The identity split in §5 exists because that failure mode
+   already cost this format one redesign.
+2. **It would couple the file's meaning to a binary.** The file is the artifact and any
+   application is merely a runner over it. What a notebook *is* should not depend on
+   what a tool was called when it was written.
+3. **A hand-edited key is expected to go stale.** Notebooks get copied and tools get
+   renamed. A key that decided the engine would then misidentify the file to every tool
+   that read it, including tools that could otherwise have worked it out correctly.
 
-Two obligations follow for tools:
+#### Why the advisory key exists anyway
 
-- A tool **should** refuse a notebook none of whose cells it can run, and say so before
-  it starts work rather than once per cell at run time. A notebook with no cells, or
-  one where only *some* cells match, must still be accepted: execution is checked per
-  cell, so refusing the whole file would be stricter than the format.
-- A tool **must not** write such a key, including as a convenience.
+Derivation answers *what can run this*. It cannot answer *what should I run instead*,
+and that gap is real: notebook tools live in their own repositories, so any list of
+tool names compiled into one tool covers only those shipped beside it. A notebook
+naming its own tool can point at an application the reading tool has never heard of.
 
-**When this would need revisiting:** if two engines ever share one language tag — two
-different SQL backends, say — the tag stops identifying the runner and derivation is
-genuinely insufficient. Tool configuration in front matter already distinguishes them
-in practice (`sqlnote-db` versus some other key), but that is inference. Should a
-declaration become necessary, declare the **language**, not the application: a language
-is checkable against the cells rather than competing with them, and it does not name a
-binary.
+Hence the split — the key carries the suggestion, the cells carry the meaning.
+
+#### Normative rules for `notekit-tool`
+
+- A tool **must not** refuse a notebook because the key names a different application,
+  and **must not** prefer the key over the cells. It takes no part in deciding what
+  runs.
+- A tool **should** use it to name the application to try when it cannot run a notebook
+  itself, in preference to any list of its own — only the file can name a tool the
+  reader does not know.
+- A tool **should** report a key that contradicts the cells as a *warning*, and carry
+  on. Contradiction is detectable only when the named tool's language is known to the
+  reader; otherwise silence is correct.
+- A tool **may** write it when creating a notebook (§10 g), which is the one moment the
+  correct value is known for certain.
+- It is a scalar naming one application. Absence is not an error and never will be:
+  every notebook written before this key existed lacks it.
+
+#### The starter-cell consequence
+
+A notebook with *no* cells has no tag to derive an engine from — the one case
+derivation cannot answer. This is why a tool's notebook-creating command writes a
+starter cell of its own language rather than an empty file (§10 f, §10 g). The starter
+cell, not the key, is what keeps every notebook's engine knowable: the key is advisory
+and may be absent or wrong, so it cannot carry that weight.
+
+A tool **should** refuse a notebook none of whose cells it can run, and say so before
+it starts work rather than once per cell at run time. A notebook with no cells, or one
+where only *some* cells match, must still be accepted: execution is checked per cell,
+so refusing the whole file would be stricter than the format.
+
+**When the derivation rule itself would need revisiting:** if two engines ever share
+one language tag — two different SQL backends, say — the tag stops distinguishing them
+and derivation becomes genuinely insufficient. `notekit-tool` does not rescue that
+case, being advisory by construction. Should a *deciding* declaration become necessary,
+declare the **language**, not the application: a language is checkable against the
+cells rather than competing with them, and it does not name a binary.
 
 ## 3. Document structure
 
@@ -506,9 +532,10 @@ cell-level metadata for the runtime, uninterpreted by the format (harvest D6).
     A new cell is a heading plus a source fence (§4) and nothing else — a tool must
     not invent prose, metadata, or a result to go with it.
   - (g) creating a whole notebook that did not exist: front matter carrying
-    `notekit: 1` and an optional `title`, then one cell per (f). Nothing else — in
-    particular no tool-specific configuration key, which the tool would be guessing at,
-    and no key naming the runner (§2.1). The one cell is required rather than optional:
+    `notekit: 1`, an optional `title` and optionally `notekit-tool` (§2.1), then one
+    cell per (f). Nothing else — in particular no tool-specific configuration key,
+    which the tool would only be guessing at. The one cell is required rather than
+    optional:
     an empty notebook has no info-string tag, and §2.1 derives the engine from exactly
     those tags. **An existing file is never a target of this write** — the file is the
     artifact, so a tool asked to create over one must refuse rather than overwrite.

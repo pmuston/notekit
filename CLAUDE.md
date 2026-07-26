@@ -258,17 +258,22 @@ Further invariants worth internalising before touching `run` or `exec`:
   §4.3 would make it a section with no cell.
 - Executors declare whether they emit `csv` or `jsonl`; the kit does **not**
   transcode between them.
-- **A notebook's engine is derived from its cells' info-string tags, never declared in
-  front matter** (format spec §2.1). `notekit-app: sqlnote` was considered and rejected:
-  it is redundant with tags that already exist, so it needs a conflict rule for the case
-  where the two disagree — structurally the D1 mistake again — and it ties a file to a
-  binary name when "the file is the artifact" is the first commitment. Because unknown
-  keys are passthrough, adding such a key later costs nothing, while un-adding one costs
-  everything; the cheap direction is to wait. `doc.Notebook.Langs()` is the whole
-  mechanism. Two knock-ons: a tool refuses at *open* a notebook none of whose cells it
-  can run (naming the sibling tool, not just saying no), and `new` **must** write a
-  starter cell, because a cell-less notebook is the one case derivation cannot answer.
-  If two engines ever share a tag, declare the *language*, not the app.
+- **What a notebook can run is derived from its cells' tags; `notekit-tool` only says what
+  to *try instead*** (format spec §2.1). Keep these apart — conflating them is the whole
+  hazard. Derivation is normative and front matter takes no part in it
+  (`doc.Notebook.Langs()` vs the executor's `Lang()`). A *deciding* key was rejected: it
+  would be redundant with the tags, needing a conflict rule — structurally the D1 mistake
+  again — and a hand-edited key is expected to go stale. But derivation cannot answer
+  "which tool then?", and notebook tools live in **separate repos** (clinote v1 and
+  priortool already do), so no compiled-in list can name them. Hence `notekit-tool`:
+  advisory, reserved for spelling only. It **must never** cause a refusal — a wrong value
+  costs a warning and nothing more, guarded by
+  `TestInspectNeverRefusesOverTheKey`. `new` writes it, `notefmt` reports it when it
+  contradicts the cells, and `notetool.Suggest` prefers it over the registry precisely
+  because only the file can name a tool this build has never heard of.
+- **`new` must write a starter cell**, because a cell-less notebook is the one case
+  derivation cannot answer — and the advisory key cannot carry that weight, being
+  optional and possibly wrong.
 - **`internal/notetool.Tools` is the only place that maps a language to a binary**, and it
   is exact. A hand-maintained copy had already drifted — sqlnote suggested clinote for
   `bash` cells, which clinote refuses too, since `run` compares tags for equality. A

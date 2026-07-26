@@ -122,7 +122,7 @@ func runMain(args []string, stdout, stderr io.Writer) int {
 			return exitUsage
 		}
 		path = fs.Arg(0)
-		if err := notetool.Create(path, starterCell(ex.Lang())); err != nil {
+		if err := notetool.Create(path, "clinote", starterCell(ex.Lang())); err != nil {
 			fmt.Fprintf(stderr, "clinote: %v\n", err)
 			return exitUsage
 		}
@@ -133,9 +133,15 @@ func runMain(args []string, stdout, stderr io.Writer) int {
 			fmt.Fprintf(stderr, "clinote: %v\n", err)
 			return exitUsage
 		}
-		if err := notetool.CheckEngine(path, "clinote", ex.Lang()); err != nil {
+		// A refusal stops us; a warning is said and stepped over. The advisory tool key
+		// must never decide whether a notebook opens (§2.1).
+		warn, err := notetool.Inspect(path, "clinote", ex.Lang())
+		if err != nil {
 			fmt.Fprintf(stderr, "clinote: %v\n", err)
 			return exitUsage
+		}
+		if warn != "" {
+			fmt.Fprintf(stderr, "clinote: warning: %s\n", warn)
 		}
 	}
 

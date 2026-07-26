@@ -7,7 +7,7 @@ import (
 )
 
 func TestScaffoldIsAParseableNotebookWithOneCell(t *testing.T) {
-	src, err := Scaffold("Parts inventory", NewCell{
+	src, err := Scaffold("Parts inventory", nil, NewCell{
 		Heading: "First query",
 		Lang:    "sql",
 		Body:    "SELECT 'hello' AS greeting;\n",
@@ -51,7 +51,7 @@ func TestScaffoldRoundTrips(t *testing.T) {
 		"Parts inventory", "", "true", "1.5", "Notes: a study", "# hash",
 		`say "hi"`, "  padded  ", "-leading dash", "Ünïcøde", "no", "0x10",
 	} {
-		src, err := Scaffold(title, NewCell{Heading: "H", Lang: "sh", Body: "ls\n"})
+		src, err := Scaffold(title, nil, NewCell{Heading: "H", Lang: "sh", Body: "ls\n"})
 		if err != nil {
 			t.Fatalf("Scaffold(%q): %v", title, err)
 		}
@@ -73,7 +73,7 @@ func TestScaffoldRoundTrips(t *testing.T) {
 }
 
 func TestScaffoldRefusesANewlineInTheTitle(t *testing.T) {
-	if _, err := Scaffold("two\nlines", NewCell{Heading: "H", Lang: "sh"}); err == nil {
+	if _, err := Scaffold("two\nlines", nil, NewCell{Heading: "H", Lang: "sh"}); err == nil {
 		t.Fatal("want an error: a newline would end the front matter scalar early")
 	}
 }

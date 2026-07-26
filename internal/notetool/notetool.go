@@ -5,6 +5,13 @@
 // refuses too, because the hint was hand-maintained rather than derived from what the
 // executors actually claim. A single [Tools] list is what stops that recurring.
 //
+// [Tools] is a compiled-in list, so it can only ever name tools in this module — and
+// notebook tools live in their own repositories (clinote v1 and priortool already do). That
+// is what the advisory [doc.FrontKeyTool] key is for: a notebook can name a tool nothing
+// here has heard of. The two are complementary rather than redundant. The key says what the
+// *file* claims; [Tools] says what this *build* knows, which is the only one of the two that
+// can be checked. So the key supplies the suggestion and [Tools] audits it.
+//
 // This is deliberately not part of the kit. The kit implements the format and the runtime;
 // which binaries exist and what they are called is neither, and a kit that knew tool names
 // would invert the dependency — tools are compiled in, so only the module can know its own
@@ -46,6 +53,18 @@ var Tools = []Tool{
 	{Name: "sqlnote", Lang: "sql"},
 }
 
+// LangOf returns the tag the named tool runs, and whether it is known here at all. A tool
+// from another module is unknown, which is not an error — it is the case the advisory key
+// exists to cover.
+func LangOf(name string) (string, bool) {
+	for _, t := range Tools {
+		if t.Name == name {
+			return t.Lang, true
+		}
+	}
+	return "", false
+}
+
 // Sibling names the tool that runs any of langs, skipping self. It returns "" when no
 // tool in this module can — which is the honest answer for a tag nothing claims, and
 // better than naming a tool that would refuse in turn.
@@ -76,32 +95,95 @@ func Sibling(langs []string, self string) string {
 // someone clicked Run, once per cell, in wording written for a developer — after the server
 // had started and the page had rendered as though it were ready.
 func CheckEngine(path, self, lang string) error {
-	src, err := os.ReadFile(path)
-	if err != nil {
-		return err
+	_, err := Inspect(path, self, lang)
+	return err
+}
+
+// Inspect reports whether this binary can run the notebook at path, and anything worth
+// saying about it that is not a refusal.
+//
+// err means refuse: no cell carries a tag this executor runs. warn means proceed and say so
+// — currently only a [doc.FrontKeyTool] value that contradicts the cells. The two are
+// separate returns because the key must never cause a refusal (§2.1): it is advisory, and
+// treating a stale value as authoritative is exactly the failure it is defined to avoid.
+func Inspect(path, self, lang string) (warn string, err error) {
+	src, rerr := os.ReadFile(path)
+	if rerr != nil {
+		return "", rerr
 	}
-	nb, err := doc.Parse(src)
-	if err != nil {
-		return fmt.Errorf("%s: %w", path, err)
+	nb, perr := doc.Parse(src)
+	if perr != nil {
+		return "", fmt.Errorf("%s: %w", path, perr)
 	}
 	langs := nb.Langs()
+	if w := ToolKeyWarning(nb); w != "" {
+		warn = path + ": " + w
+	}
+
 	if len(langs) == 0 {
-		return nil
+		return warn, nil
 	}
 	for _, l := range langs {
 		if l == lang {
-			return nil
+			return warn, nil
 		}
 	}
 	msg := fmt.Sprintf("%s has %s cells, and %s runs %q cells",
 		path, quoteList(langs), self, lang)
-	if sib := Sibling(langs, self); sib != "" {
-		msg += "\n  try: " + sib + " " + path
+	if sug := Suggest(nb, self); sug != "" {
+		msg += "\n  try: " + sug + " " + path
 	}
-	return errors.New(msg)
+	return warn, errors.New(msg)
 }
 
-// Create writes a new notebook at path: front matter, then first and nothing else.
+// Suggest names the tool to point someone at, skipping self.
+//
+// The notebook's own [doc.FrontKeyTool] wins, because it is the only source that can name a
+// tool this build has never heard of. [Sibling] is the fallback for the notebooks that carry
+// no key — every notebook written before the key existed, and any written by hand.
+func Suggest(nb *doc.Notebook, self string) string {
+	if claimed := nb.Front()[doc.FrontKeyTool]; claimed != "" && claimed != self {
+		return claimed
+	}
+	return Sibling(nb.Langs(), self)
+}
+
+// ToolKeyWarning reports a [doc.FrontKeyTool] value that contradicts the notebook's cells,
+// or "" when there is nothing to say. The message names no file; the caller places it.
+//
+// Only a *known* tool can be contradicted: if the key names something from another module
+// there is no lang to compare against, and silence is correct — that is the case the key
+// exists for. A notebook with no cells cannot contradict anything either.
+//
+// This is a warning and never more. The cells decide what runs; the key is hand-editable
+// text, and a stale value is expected rather than exceptional.
+func ToolKeyWarning(nb *doc.Notebook) string {
+	claimed := nb.Front()[doc.FrontKeyTool]
+	if claimed == "" {
+		return ""
+	}
+	claimedLang, known := LangOf(claimed)
+	if !known {
+		return ""
+	}
+	langs := nb.Langs()
+	if len(langs) == 0 {
+		return ""
+	}
+	for _, l := range langs {
+		if l == claimedLang {
+			return ""
+		}
+	}
+	// Path-free: notefmt already prefixes its findings with file:line, and repeating the
+	// name there read as a stutter. Callers that need it add it themselves.
+	return fmt.Sprintf("%s says %s, but the cells are %s — %s runs %q. "+
+		"The cells decide; fix the key or ignore it",
+		doc.FrontKeyTool, claimed, quoteList(langs), claimed, claimedLang)
+}
+
+// Create writes a new notebook at path: front matter naming self as the tool, then first
+// and nothing else.
 //
 // The cell is required rather than optional. [CheckEngine] derives a notebook's engine from
 // its cells' tags, and a cell-less notebook is the one case that cannot answer — so a
@@ -110,13 +192,16 @@ func CheckEngine(path, self, lang string) error {
 //
 // An existing file is never touched. The file is the artifact, so overwriting one on a
 // mistyped path would destroy work no tool can recover, and refusing costs one command.
-func Create(path string, first doc.NewCell) error {
+func Create(path, self string, first doc.NewCell) error {
 	if _, err := os.Stat(path); err == nil {
 		return fmt.Errorf("%s already exists", path)
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
-	src, err := doc.Scaffold(TitleFromPath(path), first)
+	// Write the advisory key: this is the one moment a tool knows for certain which tool a
+	// notebook is for, so recording it costs nothing and spares the next reader a guess.
+	src, err := doc.Scaffold(TitleFromPath(path),
+		[]doc.FrontKey{{Key: doc.FrontKeyTool, Value: self}}, first)
 	if err != nil {
 		return err
 	}

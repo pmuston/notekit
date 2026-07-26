@@ -159,7 +159,7 @@ func TestCreate(t *testing.T) {
 	t.Run("writes a parseable notebook with one cell", func(t *testing.T) {
 		path := filepath.Join(dir, "parts-list.md")
 		cell := doc.NewCell{Heading: "First query", Lang: "sql", Body: "SELECT 1;\n"}
-		if err := Create(path, cell); err != nil {
+		if err := Create(path, "sqlnote", cell); err != nil {
 			t.Fatalf("Create: %v", err)
 		}
 		src, err := os.ReadFile(path)
@@ -193,7 +193,7 @@ func TestCreate(t *testing.T) {
 		if err := os.WriteFile(path, []byte(precious), 0o644); err != nil {
 			t.Fatal(err)
 		}
-		if err := Create(path, doc.NewCell{Heading: "H", Lang: "sql"}); err == nil {
+		if err := Create(path, "sqlnote", doc.NewCell{Heading: "H", Lang: "sql"}); err == nil {
 			t.Fatal("want an error for an existing file")
 		}
 		got, err := os.ReadFile(path)
@@ -206,7 +206,7 @@ func TestCreate(t *testing.T) {
 	})
 
 	t.Run("reports an unwritable directory", func(t *testing.T) {
-		if err := Create(filepath.Join(dir, "no-such-dir", "x.md"),
+		if err := Create(filepath.Join(dir, "no-such-dir", "x.md"), "sqlnote",
 			doc.NewCell{Heading: "H", Lang: "sql"}); err == nil {
 			t.Error("want an error")
 		}
@@ -244,5 +244,134 @@ func TestQuoteList(t *testing.T) {
 		if got := quoteList(tc.in); got != tc.want {
 			t.Errorf("quoteList(%v) = %s, want %s", tc.in, got, tc.want)
 		}
+	}
+}
+
+// --- the advisory notekit-tool key ---------------------------------------------------
+
+// parse is a helper for the key tests, which care about front matter rather than files.
+func parse(t *testing.T, src string) *doc.Notebook {
+	t.Helper()
+	nb, err := doc.Parse([]byte(src))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	return nb
+}
+
+func TestSuggestPrefersTheNotebooksOwnClaim(t *testing.T) {
+	const sqlCell = "\n## a\n\n```sql\nSELECT 1;\n```\n"
+
+	t.Run("a key naming a tool from another module is still usable", func(t *testing.T) {
+		// The entire reason the key exists. priortool is a separate repository, so Tools
+		// cannot name it and Sibling would have nothing to offer — but the file does.
+		nb := parse(t, "---\nnotekit: 1\nnotekit-tool: priortool\n---\n"+
+			"\n## a\n\n```cypher\nMATCH (n) RETURN n;\n```\n")
+		if got := Suggest(nb, "clinote"); got != "priortool" {
+			t.Errorf("Suggest = %q, want %q — the key is the only source that can name "+
+				"a tool outside this module", got, "priortool")
+		}
+	})
+
+	t.Run("falls back to the registry when there is no key", func(t *testing.T) {
+		// Every notebook written before the key existed, and any written by hand.
+		nb := parse(t, "---\nnotekit: 1\n---\n"+sqlCell)
+		if got := Suggest(nb, "clinote"); got != "sqlnote" {
+			t.Errorf("Suggest = %q, want %q", got, "sqlnote")
+		}
+	})
+
+	t.Run("never suggests the tool already running", func(t *testing.T) {
+		nb := parse(t, "---\nnotekit: 1\nnotekit-tool: clinote\n---\n"+sqlCell)
+		// The key names us, so it is no help; fall through to what the cells imply.
+		if got := Suggest(nb, "clinote"); got != "sqlnote" {
+			t.Errorf("Suggest = %q, want %q", got, "sqlnote")
+		}
+	})
+}
+
+func TestToolKeyWarning(t *testing.T) {
+	const sqlCell = "\n## a\n\n```sql\nSELECT 1;\n```\n"
+
+	t.Run("warns when the key contradicts the cells", func(t *testing.T) {
+		nb := parse(t, "---\nnotekit: 1\nnotekit-tool: clinote\n---\n"+sqlCell)
+		warn := ToolKeyWarning(nb)
+		if warn == "" {
+			t.Fatal("want a warning: the key says clinote, the cells are sql")
+		}
+		for _, want := range []string{"clinote", "sql", "cells decide"} {
+			if !strings.Contains(warn, want) {
+				t.Errorf("warning should mention %q: %s", want, warn)
+			}
+		}
+	})
+
+	t.Run("silent when the key agrees", func(t *testing.T) {
+		nb := parse(t, "---\nnotekit: 1\nnotekit-tool: sqlnote\n---\n"+sqlCell)
+		if warn := ToolKeyWarning(nb); warn != "" {
+			t.Errorf("want silence, got %q", warn)
+		}
+	})
+
+	t.Run("silent for a tool it cannot check", func(t *testing.T) {
+		// An unknown tool has no lang to compare, and guessing would produce a warning
+		// about a tool that may be perfectly correct. This is the key's whole purpose.
+		nb := parse(t, "---\nnotekit: 1\nnotekit-tool: priortool\n---\n"+sqlCell)
+		if warn := ToolKeyWarning(nb); warn != "" {
+			t.Errorf("an unknown tool cannot be contradicted, got %q", warn)
+		}
+	})
+
+	t.Run("silent with no key and with no cells", func(t *testing.T) {
+		if warn := ToolKeyWarning(parse(t, "---\nnotekit: 1\n---\n"+sqlCell)); warn != "" {
+			t.Errorf("no key, so nothing to say: %q", warn)
+		}
+		nb := parse(t, "---\nnotekit: 1\nnotekit-tool: clinote\n---\n\njust prose\n")
+		if warn := ToolKeyWarning(nb); warn != "" {
+			t.Errorf("no cells, so nothing to contradict: %q", warn)
+		}
+	})
+}
+
+// TestInspectNeverRefusesOverTheKey is the load-bearing guarantee of §2.1: the key is
+// advisory, so a wrong value must cost a warning and nothing more. If this ever fails, a
+// stale key has become able to stop a notebook opening — which is precisely the failure the
+// advisory framing exists to prevent.
+func TestInspectNeverRefusesOverTheKey(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "n.md")
+	// The key is flatly wrong: it names clinote, the cells are sql, and sqlnote is asking.
+	src := "---\nnotekit: 1\nnotekit-tool: clinote\n---\n\n## a\n\n```sql\nSELECT 1;\n```\n"
+	if err := os.WriteFile(path, []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	warn, err := Inspect(path, "sqlnote", "sql")
+	if err != nil {
+		t.Fatalf("the key must not cause a refusal: %v", err)
+	}
+	if warn == "" {
+		t.Error("want a warning about the contradicting key")
+	}
+}
+
+func TestCreateWritesTheAdvisoryKey(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "report.md")
+	if err := Create(path, "sqlnote", doc.NewCell{Heading: "H", Lang: "sql", Body: "SELECT 1;\n"}); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	src, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	nb, err := doc.Parse(src)
+	if err != nil {
+		t.Fatalf("unparseable: %v\n%s", err, src)
+	}
+	if got := nb.Front()[doc.FrontKeyTool]; got != "sqlnote" {
+		t.Errorf("%s = %q, want %q\n%s", doc.FrontKeyTool, got, "sqlnote", src)
+	}
+	// What it writes must not warn about itself.
+	if warn := ToolKeyWarning(nb); warn != "" {
+		t.Errorf("a freshly created notebook must not warn: %s", warn)
 	}
 }

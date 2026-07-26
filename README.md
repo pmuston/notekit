@@ -108,11 +108,14 @@ metadata the tool did not write never reordered.
 the keys the format spec reserves, mean anything. Everything else — including *all* keys on
 source fences — is preserved byte-for-byte and handed to the runtime uninterpreted.
 
-**A notebook's engine comes from its cells, not from front matter.** A file of `sql` cells
-is a SQL notebook because its cells say `sql` — no key names the runner, so there is no
-second source of truth to disagree with the first. A tool refuses a notebook it cannot run
-at open, naming the tool that can. That is also why `new` writes a starter cell: a notebook
-with no cells is the one case this cannot answer.
+**A notebook's engine comes from its cells; front matter only offers a hint.** A file of
+`sql` cells is a SQL notebook because its cells say `sql` — that decision is never taken
+from front matter, so there is no second source of truth about what runs. The optional
+`notekit-tool` key says which application to *try instead*, which cell tags cannot: notebook
+tools live in separate repositories, so no compiled-in list can name them all. It is
+advisory — a wrong value earns a warning, never a refusal. And it is why `new` writes a
+starter cell rather than relying on the key: a notebook with no cells is the one case
+derivation cannot answer.
 
 **Parsing is conservative; tools are loud.** A construct that fails to match the cell rules
 is prose, not an error. Errors come only from tools, and only about blocks they were asked

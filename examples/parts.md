@@ -1,6 +1,7 @@
 ---
 notekit: 1
 title: Parts inventory
+notekit-tool: sqlnote
 ---
 
 A **self-contained** SQL notebook: it names no database, so it runs in memory and its

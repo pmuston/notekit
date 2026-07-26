@@ -104,9 +104,14 @@ Or let sqlnote write that for you:
 ```
 
 It creates the file with one runnable starter cell and opens it. It will not overwrite an
-existing notebook, and the subcommand goes before any flags. Opening a *shell* notebook
-with sqlnote is refused straight away, naming clinote instead — a notebook's engine comes
-from the tags its cells carry, so no front-matter key is needed to work that out.
+existing notebook, and the subcommand goes before any flags.
+
+Opening a *shell* notebook with sqlnote is refused straight away, naming clinote instead.
+What a notebook can run is worked out from the tags its cells carry, never from front
+matter. The `notekit-tool: sqlnote` line `new` writes is only a hint for *other* tools — it
+lets a notebook point at an application that neither sqlnote nor clinote has heard of. It
+carries no authority: edit it to something wrong and you get a warning, not a refusal, and
+`notefmt check` will tell you it disagrees with the cells.
 
 Then `./bin/sqlnote scratch.md`. Or start from nothing — with no argument sqlnote picks
 the notebook in the current directory, and the **Add a cell** form at the foot of the page
