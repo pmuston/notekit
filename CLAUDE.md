@@ -401,10 +401,11 @@ go test ./doc -run TestCorpus -update   # regenerate goldens, then review the di
 
 A golden that changed silently is a spec change nobody reviewed, so read the diff.
 
-**Fuzzing is load-bearing here, not decoration.** Byte-identity and append-only
-insertion are exactly the properties a fuzzer can falsify, and one already has: the
-unclosed-fence corruption above came from `FuzzDocSetResult`, not from review. Six
-targets exist across `meta` and `doc`. Splice tests assert *prefix and suffix
+**Fuzzing is load-bearing here, not decoration.** Byte-identity, append-only insertion
+and reversible reordering are exactly the properties a fuzzer can falsify, and it has
+falsified all three: the unclosed-fence corruption above came from `FuzzDocSetResult`, and
+`FuzzDocMoveCell` found two more shapes of it plus disproved a reversibility claim the spec
+had made. Seven targets exist across `meta` and `doc`. Splice tests assert *prefix and suffix
 identity* rather than a diff span, because "only the expected range changed" is the
 real requirement and a diff-based bound is ambiguous for insertions.
 
@@ -415,7 +416,7 @@ make bins          # build all five commands into bin/
 make demo          # build, then point at the shipped example
 make test          # go test ./...
 make lint          # go vet + gofmt check
-make fuzz          # all six targets, 30s each; FUZZTIME=2m for longer
+make fuzz          # all seven targets, 30s each; FUZZTIME=2m for longer
 make race          # go test -race ./... — the scheduler is concurrent
 make check-corpus  # lint the acceptance corpus with notefmt itself
 make clean         # remove bin/

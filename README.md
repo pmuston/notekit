@@ -158,7 +158,7 @@ If the plan and the specs disagree, the specs win.
 ```bash
 make test          # go test ./...
 make race          # the scheduler is concurrent, so this is not optional
-make fuzz          # six targets, 30s each; FUZZTIME=2m for longer
+make fuzz          # seven targets, 30s each; FUZZTIME=2m for longer
 make lint          # go vet + gofmt check
 make check-corpus  # lint the acceptance corpus with notefmt itself
 ```
@@ -174,9 +174,11 @@ go test ./doc -run TestCorpus -update   # regenerate goldens, then read the diff
 
 A golden that changed silently is a spec change nobody reviewed.
 
-Two things carry more weight than usual. **Fuzzing is load-bearing** — byte-identity and
-append-only insertion are exactly the properties a fuzzer can falsify, and one already has:
-an unclosed source fence used to corrupt the cell it belonged to. And **goldmark is kept as
+Two things carry more weight than usual. **Fuzzing is load-bearing** — byte-identity,
+append-only insertion and reversible reordering are exactly the properties a fuzzer can
+falsify, and it has falsified all three: an unclosed source fence used to corrupt the cell it
+belonged to, and two shapes of that same fence collapsed two cells into one when a section was
+moved. And **goldmark is kept as
 an independent oracle**: `doc` scans lines itself, and `doc/scan_goldmark_test.go`
 cross-checks that scanner against goldmark on every fixture.
 
@@ -195,3 +197,10 @@ kit at functional v1 parity, and sqlnote exists as a second consumer in a non-sh
 
 Each spec ends with a **FUTURE** section. Those are recorded so the contracts do not
 preclude them — not a roadmap, and not implemented.
+
+## Licence
+
+MIT — see [LICENSE](LICENSE).
+
+The one vendored third-party file, `serve/assets/htmx.min.js`, is Zero-Clause BSD; see
+[serve/assets/VENDOR.md](serve/assets/VENDOR.md).
