@@ -520,6 +520,32 @@ client with no rendered page cannot be stale.
 what run-all does, and D4 forbids staleness tracking — so nothing marks the now-misordered
 results. Re-running is the user's call.
 
+## The notekit-app skill
+
+`skills/notekit-app/` is the canonical copy of a skill that builds a *new* notebook tool on
+this kit — the thing that turns "I want a Redis notebook" into an executor and a `main`.
+
+**It has to be installed to user level to be usable**: a skill under this repo's `skills/`
+is invisible from the empty repo where a new tool actually gets built. Install with
+
+```bash
+cp -r skills/notekit-app ~/.claude/skills/
+```
+
+Keep the copy here as the reviewed source and re-copy when it changes; the two are expected
+to be identical.
+
+It leans on notekit being public, and on one property worth not breaking: **the specs ship
+inside the Go module**, so `go list -m -f '{{.Dir}}' github.com/pmuston/notekit` gives an
+agent the whole design corpus, version-pinned, with nothing copied and nothing to drift. All
+five `cmd/` binaries travel too, which is why the skill can tell an agent to read `sqlnote`
+in full, and why `go run github.com/pmuston/notekit/cmd/notefmt@latest` lints a notebook with
+no clone. Every command the skill gives is verified to work from outside this repo.
+
+`references/domains.md` holds worked analyses for Redis and Postgres, including the two live
+design questions a second SQL tool would force: the `sql` **tag collision** (§2.1's named
+trigger for revisiting derivation) and **SQLSTATE not fitting §7's numeric `status`**.
+
 ## Scope discipline
 
 Each spec ends with a **FUTURE** section. Do not implement anything in one — they are
