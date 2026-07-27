@@ -36,8 +36,8 @@ Fixed for v1. Tools must support all three.
 
 ### 2.2 `table` (durable as `csv` or `jsonl`)
 
-- Durable: `output` fence with `format=csv` (RFC 4180, header row required — priortool
-  convention) or `format=jsonl` (one JSON object per line).
+- Durable: `output` fence with `format=csv` (RFC 4180, header row required) or
+  `format=jsonl` (one JSON object per line).
 - Live: sortable HTML table; JSONL flattened to columns by first-seen key order.
   Cells beyond the runtime output cap follow the standard truncation rule; the
   table renders what was persisted, never a fuller live-only version.

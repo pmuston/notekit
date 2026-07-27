@@ -33,6 +33,11 @@ directory name is confirmed, the payload rule was too thin and is corrected, and
 artifact writes are adopted. The `<slug>--<id>` naming is a deliberate divergence, and
 priortool's own manual reattach screen is the evidence for it.
 
+> **On names.** `clinote` is a published shell notebook. `priortool` and `graphtool` are
+> pseudonyms for two unpublished sibling projects that implement earlier versions of this
+> format; they are named so that a rule's evidence is traceable and so that "two independent
+> tools converged on this" can be told apart from "this rests on one alone".
+
 ---
 
 ## 1. Overview
@@ -290,7 +295,7 @@ no error raised. Deriving identity from content rather than position is a requir
 (harvest R7) that survives the move to slugs.
 
 > **Aligned with priortool, and checked.** The rules above match priortool's implementation
-> exactly; `doc.TestSlugMatchesPriortool` carries priortool's algorithm as an oracle and
+> exactly; `doc.TestSlugMatchesPriorTool` carries priortool's algorithm as an oracle and
 > asserts the two agree, so this is a verified claim rather than an impression. Under this
 > scheme slug rules are cosmetic, so a divergence would have cost only filename
 > aesthetics — but matching means a notebook migrated from priortool keeps the filenames a

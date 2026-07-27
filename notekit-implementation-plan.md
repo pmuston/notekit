@@ -637,7 +637,7 @@ synthetically, and the first graph tool is what will exercise them for real.
 ### 8.9 Slug alignment with priortool — ✅ RESOLVED, format spec §5.2
 
 Checked rather than assumed. priortool's slug algorithm is transcribed into
-`doc.TestSlugMatchesPriortool` as an oracle, and the two agree on every input tried,
+`doc.TestSlugMatchesPriorTool` as an oracle, and the two agree on every input tried,
 including the 60-character truncation and its re-trim. The implementations differ in shape
 — priortool writes a separator immediately and trims afterwards, notekit defers it until the
 next alphanumeric — so equivalence was worth demonstrating.

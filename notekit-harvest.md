@@ -5,7 +5,7 @@
 > **divergent**, or **speculative**, and records the adjudications the spec must make.
 > Nothing here is design; it is the record of what has already been designed three times.
 
-Status: adjudicated 16 July 2026 — divergences resolved in §3 · Provenance markers: `[cli]` clinote, `[cy]` graphtool, `[cyp]` priortool
+Status: adjudicated 16 July 2026 — divergences resolved in §3 · Provenance markers: `[cli]` clinote, `[cy]` graphtool, `[cyp]` priortool — the latter two are unpublished sibling projects, referred to here by pseudonym; what matters is which requirement rests on which, and how many
 Items marked ⚠ are inferred from incomplete records — confirm or correct before the spec inherits them.
 
 ---
@@ -15,8 +15,8 @@ Items marked ⚠ are inferred from incomplete records — confirm or correct bef
 | Tool | Domain | Executor | UI surface | Status |
 |---|---|---|---|---|
 | **clinote** | Shell | Persistent shell under a pty, sentinel exit-code capture | Go/Echo + HTMX, browser | Most advanced; implemented |
-| **graphtool** | Cypher | Embedded GraphStore (in-memory property graph, SQLite-backed, file-per-graph) | SwiftUI editor + WKWebView preview (cmark-gfm, Sigma.js) | Spec'd; implementation status ⚠ |
-| **priortool** | Cypher figure plates | Neo4j via priortool-style connection | Go/Echo, browser Sigma.js, crystallise-to-PNG, PDF export | Spec'd (six milestones) |
+| **graphtool** | Graph query | Embedded graph store, file-per-graph | Native desktop editor with an embedded Markdown preview | Spec'd; implementation status ⚠ |
+| **priortool** | Graph-query figure plates | Networked graph database | Go/Echo, browser graph rendering, crystallise-to-image, PDF export | Spec'd (six milestones); implemented |
 
 All three independently converged on: one CommonMark file per notebook, fenced blocks as
 cells, results persisted into or beside the file, single static Go-or-native binary,

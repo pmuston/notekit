@@ -95,7 +95,7 @@ func liveTable(in LiveInput) (template.HTML, error) {
 	return template.HTML(b.String()), nil
 }
 
-// parseCSV reads RFC 4180 with a required header row (the priortool convention, §2.2).
+// parseCSV reads RFC 4180 with a required header row (§2.2).
 func parseCSV(body string) ([]string, [][]string, error) {
 	r := csv.NewReader(strings.NewReader(body))
 	// Rows of differing length are tolerated: a result is data, not a schema, and

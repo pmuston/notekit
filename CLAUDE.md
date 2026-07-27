@@ -31,11 +31,12 @@ runtime (§2.2), **V** = rendering (§2.3), **P** = implementation posture (§2.
 rationale — follow it before changing anything.
 
 Provenance markers inside the harvest name the source tool: `[cli]` clinote (shell;
-Go/Echo/HTMX; the most advanced and the only one actually implemented), `[cy]` graphtool
-(Cypher; SwiftUI; spec'd, implementation status unconfirmed), `[cyp]` priortool (Cypher
-figure plates; Go/Echo + browser crystallisation to PNG, PDF export; spec'd). A
-requirement's provenance tells you how much evidence stands behind it — several rules
-rest on clinote alone.
+Go/Echo/HTMX; public, and the most advanced of the three), `[cy]` graphtool (a graph-query
+notebook on a native UI; spec'd, implementation status unconfirmed), `[cyp]` priortool (a
+graph-query figure-plate tool; implemented). The latter two are unpublished sibling projects
+under pseudonyms — what matters is which requirement rests on which, and how many. A
+requirement's provenance tells you how much evidence stands behind it; several rules rest on
+clinote alone.
 
 **⚠ in the harvest means inferred from incomplete records** — confirm before relying
 on it, don't inherit it silently.
@@ -44,17 +45,17 @@ on it, don't inherit it silently.
 
 All four harvest open questions are resolved and their resolutions are in the specs:
 the info-string two-axis grammar (1); first-class `error` blocks with interleaved
-stdout/stderr (2); the sidecar convention, verified against the priortool *implementation*
-at `../priortool` (3); and slug rules, checked against priortool's algorithm by a differential
-test (4).
+stdout/stderr (2); the sidecar convention, verified against priortool's *implementation*
+rather than its spec (3); and slug rules, checked against priortool's algorithm by a
+differential test (4).
 
-**The sibling tools are readable, and worth reading before reinventing.** `../clinote` is
-v1, whose pty runner is the proven prior art the shell executor extracts.
-`../priortool` is implemented, and settled §8: its directory name confirmed ours, its payload
-JSON showed ours was too thin (offline re-render needs layout, not just data), and its
-atomic artifact writes exposed a gap. Its manual *reattach* screen — "the fix for a renamed
-heading, whose old artifacts no longer match any cell ID" — is the concrete evidence for
-why §5 stores an `id`: that screen is a workaround for the hazard notekit eliminates.
+**The prior art was read before anything here was reinvented.** clinote v1 is public, and
+its pty runner is the proven ancestor the shell executor extracts. The unpublished
+`priortool` is implemented, and settled §8: its sidecar directory name confirmed ours, its
+payload JSON showed ours was too thin (offline re-render needs layout, not just data), and
+its atomic artifact writes exposed a gap. Its manual *reattach* screen — the fix for a
+renamed heading whose old artifacts no longer match any cell ID — is the concrete evidence
+for why §5 stores an `id`: that screen is a workaround for the hazard notekit eliminates.
 
 ### Cell identity supersedes harvest D1
 
@@ -93,8 +94,8 @@ Two knock-on rules that are easy to miss:
   blocks only.
 
 Slug rules are cosmetic under this scheme, and they nonetheless match priortool's exactly —
-`doc.TestSlugMatchesPriortool` holds priortool's algorithm as an oracle and asserts agreement,
-so a notebook migrated from priortool keeps the filenames a reader recognises.
+`doc.TestSlugMatchesPriorTool` holds priortool's algorithm as an oracle and asserts
+agreement, so a notebook migrated from it keeps the filenames a reader recognises.
 
 Harvest §3 is a dated record and was left untouched; this supersedes D1 rather than
 rewriting it.
