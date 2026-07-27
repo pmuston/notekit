@@ -25,7 +25,8 @@ import (
 	"text/tabwriter"
 
 	"github.com/pmuston/notekit/doc"
-	"github.com/pmuston/notekit/internal/notetool"
+	"github.com/pmuston/notekit/internal/siblings"
+	"github.com/pmuston/notekit/notetool"
 )
 
 const usage = `notefmt inspects and lints notekit notebooks.
@@ -182,7 +183,10 @@ func checkFile(path string, rep *report, stdout io.Writer) error {
 	// misleading rather than malformed — and notefmt reports what is legal but worth
 	// saying. It is also the only check here that can catch the key drifting, since the
 	// key is hand-editable and nothing forces it to keep up with the cells.
-	if warn := notetool.ToolKeyWarning(n); warn != "" {
+	// notefmt runs nothing, so it has no Lang of its own; it needs only the sibling list,
+	// which is what lets it tell a contradicting key from one naming a tool it cannot check.
+	linter := notetool.Tool{Name: "notefmt", Peers: siblings.All}
+	if warn := linter.ToolKeyWarning(n); warn != "" {
 		rep.warnf(path, "%s", warn)
 	}
 

@@ -133,9 +133,11 @@ notekit/
   exec/           executor and session contracts; exec/echoexec is the reference impl
   kind/           result-kind registry: durable writers now, live renderers at M2
   serve/          Echo handlers + HTMX templates + go:embed assets
-  internal/notetool/  what the notebook binaries share: the tool/lang registry, the
-                  engine check, notebook creation, the notebook picker. NOT kit — tool
-                  names are neither format nor runtime
+  notetool/       the tool-side obligations the format implies: create a notebook (§10 g),
+                  refuse one this binary cannot run (§2.1), find the one to open. Public,
+                  because a tool in another repo needs exactly this
+  internal/siblings/  which binaries THIS module ships, and what each runs. Internal because
+                  it is the only genuinely repo-specific part
 ```
 
 Three architectural decisions drive almost every implementation choice:
@@ -280,13 +282,23 @@ Further invariants worth internalising before touching `run` or `exec`:
   (`FindNotebooks`, `Resolve`), the engine check, `Create`. `Resolve` takes a directory
   rather than assuming `.` purely so tests need no `os.Chdir` — a process-global that
   breaks parallelism and leaks between tests. Callers pass `"."`.
-- **`internal/notetool.Tools` is the only place that maps a language to a binary**, and it
-  is exact. A hand-maintained copy had already drifted — sqlnote suggested clinote for
-  `bash` cells, which clinote refuses too, since `run` compares tags for equality. A
-  suggestion that sends someone to a second refusal is worse than none, so `Sibling`
-  returns "" for a tag no tool claims. The registry cannot be checked beside itself (a
-  main package is not importable), so each tool asserts its own entry in
-  `TestToolsListsThisTool`; two tools claiming one tag is a test failure, not a tie-break.
+- **`notetool` is public and names no tools.** `Tool{Name, Lang, Peers}` is built by the
+  caller; the kit supplies the mechanism and the module supplies the list. That split is what
+  makes it publishable: a registry of binary names inside a library would invert the
+  dependency, since executors are compiled in and only a module knows its own set. It is also
+  what an external tool needs — `internal/` made this unusable from another module, which was
+  a real block on the next notebook tool rather than a hypothetical one.
+- **`Peers` may be empty and often is.** A tool in its own repository knows of nobody, and
+  `Suggest` then falls back to the notebook's advisory `notekit-tool` key — the case that key
+  was added for. Verified: an external module with no peers still suggests correctly for a
+  notebook that names its own tool.
+- **`internal/siblings.All` is the only place that maps a language to a binary in this
+  module**, and it is exact. A hand-maintained copy had already drifted — sqlnote suggested
+  clinote for `bash` cells, which clinote refuses too, since `run` compares tags for equality.
+  A suggestion that sends someone to a second refusal is worse than none, so `sibling` returns
+  "" for a tag no peer claims. The list cannot be checked beside itself (a main package is not
+  importable), so each tool asserts its own entry in `TestToolsListsThisTool`; two tools
+  claiming one tag is a test failure, not a tie-break.
 
 ## Writing an executor
 

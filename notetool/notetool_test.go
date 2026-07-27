@@ -9,6 +9,13 @@ import (
 	"github.com/pmuston/notekit/doc"
 )
 
+// pair mirrors what a module supplies as Peers. The package under test ships no list of its
+// own — that is the point of the promotion — so its tests declare one.
+var pair = []Peer{{Name: "clinote", Lang: "sh"}, {Name: "sqlnote", Lang: "sql"}}
+
+func clinote() Tool { return Tool{Name: "clinote", Lang: "sh", Peers: pair} }
+func sqlnote() Tool { return Tool{Name: "sqlnote", Lang: "sql", Peers: pair} }
+
 func TestSiblingNamesTheOtherTool(t *testing.T) {
 	for _, tc := range []struct {
 		name  string
@@ -22,6 +29,9 @@ func TestSiblingNamesTheOtherTool(t *testing.T) {
 		{"first match wins", []string{"sql", "sh"}, "clinote", "sqlnote"},
 		{"nothing for an unclaimed tag", []string{"python"}, "clinote", ""},
 		{"nothing for no cells", nil, "clinote", ""},
+		// A tool in its own repository knows of nobody, which is supported rather than
+		// degraded: Suggest then falls back to the notebook's advisory key.
+		{"no peers at all", []string{"sql"}, "rednote", ""},
 
 		// The drift this package exists to prevent. clinote's executor claims "sh" and
 		// package run compares tags for equality, so clinote refuses `bash` cells as
@@ -31,20 +41,24 @@ func TestSiblingNamesTheOtherTool(t *testing.T) {
 		{"zsh is claimed by nothing", []string{"zsh"}, "sqlnote", ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := Sibling(tc.langs, tc.self); got != tc.want {
-				t.Errorf("Sibling(%v, %q) = %q, want %q", tc.langs, tc.self, got, tc.want)
+			self := Tool{Name: tc.self, Peers: pair}
+			if tc.self == "rednote" {
+				self = Tool{Name: "rednote", Lang: "redis"} // no peers
+			}
+			if got := self.sibling(tc.langs); got != tc.want {
+				t.Errorf("sibling(%v) as %q = %q, want %q", tc.langs, tc.self, got, tc.want)
 			}
 		})
 	}
 }
 
-// TestToolsAreConsistent guards the registry's own shape. The per-tool Lang values are
-// checked against the executors in each cmd package, which is the only place that can
-// import them.
-func TestToolsAreConsistent(t *testing.T) {
+// TestPeerListIsConsistent guards the shape a caller's Peers list must have. The per-tool
+// Lang values are checked against the executors in each cmd package, which is the only place
+// that can import them.
+func TestPeerListIsConsistent(t *testing.T) {
 	seenName := map[string]bool{}
 	seenLang := map[string]bool{}
-	for _, tool := range Tools {
+	for _, tool := range pair {
 		if tool.Name == "" || tool.Lang == "" {
 			t.Errorf("incomplete entry: %+v", tool)
 		}
@@ -55,7 +69,7 @@ func TestToolsAreConsistent(t *testing.T) {
 		// and is the case format spec §2.1 says to revisit the design over rather than
 		// paper around.
 		if seenLang[tool.Lang] {
-			t.Errorf("two tools claim %q; Sibling cannot choose between them, and "+
+			t.Errorf("two tools claim %q; sibling cannot choose between them, and "+
 				"§2.1 says a shared tag needs a design decision, not a tie-break",
 				tool.Lang)
 		}
@@ -82,7 +96,7 @@ func TestCheckEngine(t *testing.T) {
 	foreign := write("py.md", "---\nnotekit: 1\n---\n\n## a\n\n```python\nprint(1)\n```\n")
 
 	t.Run("accepts a notebook it can run", func(t *testing.T) {
-		if err := CheckEngine(sqlOnly, "sqlnote", "sql"); err != nil {
+		if err := sqlnote().CheckEngine(sqlOnly); err != nil {
 			t.Errorf("want nil, got %v", err)
 		}
 	})
@@ -90,10 +104,10 @@ func TestCheckEngine(t *testing.T) {
 	// Per cell is what package run enforces, so one runnable cell is enough. Refusing the
 	// whole file would be stricter than the format.
 	t.Run("accepts a partial match", func(t *testing.T) {
-		if err := CheckEngine(mixed, "sqlnote", "sql"); err != nil {
+		if err := sqlnote().CheckEngine(mixed); err != nil {
 			t.Errorf("want nil, got %v", err)
 		}
-		if err := CheckEngine(mixed, "clinote", "sh"); err != nil {
+		if err := clinote().CheckEngine(mixed); err != nil {
 			t.Errorf("want nil, got %v", err)
 		}
 	})
@@ -101,13 +115,13 @@ func TestCheckEngine(t *testing.T) {
 	// Nothing to contradict. A notebook Create made always has a cell, so this is the
 	// half-written case rather than a broken one.
 	t.Run("accepts a cell-less notebook", func(t *testing.T) {
-		if err := CheckEngine(bare, "sqlnote", "sql"); err != nil {
+		if err := sqlnote().CheckEngine(bare); err != nil {
 			t.Errorf("want nil, got %v", err)
 		}
 	})
 
 	t.Run("refuses and points at the sibling", func(t *testing.T) {
-		err := CheckEngine(sqlOnly, "clinote", "sh")
+		err := clinote().CheckEngine(sqlOnly)
 		if err == nil {
 			t.Fatal("want an error")
 		}
@@ -121,7 +135,7 @@ func TestCheckEngine(t *testing.T) {
 	// No tool claims python, so there is nowhere to send anyone. Saying nothing beats
 	// naming a tool that would refuse in turn.
 	t.Run("refuses without a suggestion it cannot make", func(t *testing.T) {
-		err := CheckEngine(foreign, "sqlnote", "sql")
+		err := sqlnote().CheckEngine(foreign)
 		if err == nil {
 			t.Fatal("want an error")
 		}
@@ -132,22 +146,22 @@ func TestCheckEngine(t *testing.T) {
 
 	t.Run("reports a non-notebook as such", func(t *testing.T) {
 		notNotebook := write("plain.md", "# just markdown\n")
-		if err := CheckEngine(notNotebook, "sqlnote", "sql"); err == nil {
+		if err := sqlnote().CheckEngine(notNotebook); err == nil {
 			t.Error("want an error for a file without notekit front matter")
 		}
 	})
 
 	t.Run("reports a missing file", func(t *testing.T) {
-		if err := CheckEngine(filepath.Join(dir, "nope.md"), "sqlnote", "sql"); err == nil {
+		if err := sqlnote().CheckEngine(filepath.Join(dir, "nope.md")); err == nil {
 			t.Error("want an error")
 		}
 	})
 
 	t.Run("both directions of the real pair", func(t *testing.T) {
-		if err := CheckEngine(shOnly, "sqlnote", "sql"); err == nil {
+		if err := sqlnote().CheckEngine(shOnly); err == nil {
 			t.Error("sqlnote should refuse a shell notebook")
 		}
-		if err := CheckEngine(shOnly, "clinote", "sh"); err != nil {
+		if err := clinote().CheckEngine(shOnly); err != nil {
 			t.Errorf("clinote should accept a shell notebook: %v", err)
 		}
 	})
@@ -159,7 +173,7 @@ func TestCreate(t *testing.T) {
 	t.Run("writes a parseable notebook with one cell", func(t *testing.T) {
 		path := filepath.Join(dir, "parts-list.md")
 		cell := doc.NewCell{Heading: "First query", Lang: "sql", Body: "SELECT 1;\n"}
-		if err := Create(path, "sqlnote", cell); err != nil {
+		if err := sqlnote().Create(path, cell); err != nil {
 			t.Fatalf("Create: %v", err)
 		}
 		src, err := os.ReadFile(path)
@@ -182,7 +196,7 @@ func TestCreate(t *testing.T) {
 		}
 		// The whole reason the cell is mandatory: without it there is no tag, and
 		// CheckEngine could not tell what the notebook is.
-		if err := CheckEngine(path, "sqlnote", "sql"); err != nil {
+		if err := sqlnote().CheckEngine(path); err != nil {
 			t.Errorf("a notebook Create just made must be runnable by its maker: %v", err)
 		}
 	})
@@ -193,7 +207,7 @@ func TestCreate(t *testing.T) {
 		if err := os.WriteFile(path, []byte(precious), 0o644); err != nil {
 			t.Fatal(err)
 		}
-		if err := Create(path, "sqlnote", doc.NewCell{Heading: "H", Lang: "sql"}); err == nil {
+		if err := sqlnote().Create(path, doc.NewCell{Heading: "H", Lang: "sql"}); err == nil {
 			t.Fatal("want an error for an existing file")
 		}
 		got, err := os.ReadFile(path)
@@ -206,7 +220,7 @@ func TestCreate(t *testing.T) {
 	})
 
 	t.Run("reports an unwritable directory", func(t *testing.T) {
-		if err := Create(filepath.Join(dir, "no-such-dir", "x.md"), "sqlnote",
+		if err := sqlnote().Create(filepath.Join(dir, "no-such-dir", "x.md"),
 			doc.NewCell{Heading: "H", Lang: "sql"}); err == nil {
 			t.Error("want an error")
 		}
@@ -267,7 +281,7 @@ func TestSuggestPrefersTheNotebooksOwnClaim(t *testing.T) {
 		// cannot name it and Sibling would have nothing to offer — but the file does.
 		nb := parse(t, "---\nnotekit: 1\nnotekit-tool: priortool\n---\n"+
 			"\n## a\n\n```cypher\nMATCH (n) RETURN n;\n```\n")
-		if got := Suggest(nb, "clinote"); got != "priortool" {
+		if got := clinote().Suggest(nb); got != "priortool" {
 			t.Errorf("Suggest = %q, want %q — the key is the only source that can name "+
 				"a tool outside this module", got, "priortool")
 		}
@@ -276,7 +290,7 @@ func TestSuggestPrefersTheNotebooksOwnClaim(t *testing.T) {
 	t.Run("falls back to the registry when there is no key", func(t *testing.T) {
 		// Every notebook written before the key existed, and any written by hand.
 		nb := parse(t, "---\nnotekit: 1\n---\n"+sqlCell)
-		if got := Suggest(nb, "clinote"); got != "sqlnote" {
+		if got := clinote().Suggest(nb); got != "sqlnote" {
 			t.Errorf("Suggest = %q, want %q", got, "sqlnote")
 		}
 	})
@@ -284,7 +298,7 @@ func TestSuggestPrefersTheNotebooksOwnClaim(t *testing.T) {
 	t.Run("never suggests the tool already running", func(t *testing.T) {
 		nb := parse(t, "---\nnotekit: 1\nnotekit-tool: clinote\n---\n"+sqlCell)
 		// The key names us, so it is no help; fall through to what the cells imply.
-		if got := Suggest(nb, "clinote"); got != "sqlnote" {
+		if got := clinote().Suggest(nb); got != "sqlnote" {
 			t.Errorf("Suggest = %q, want %q", got, "sqlnote")
 		}
 	})
@@ -295,7 +309,7 @@ func TestToolKeyWarning(t *testing.T) {
 
 	t.Run("warns when the key contradicts the cells", func(t *testing.T) {
 		nb := parse(t, "---\nnotekit: 1\nnotekit-tool: clinote\n---\n"+sqlCell)
-		warn := ToolKeyWarning(nb)
+		warn := sqlnote().ToolKeyWarning(nb)
 		if warn == "" {
 			t.Fatal("want a warning: the key says clinote, the cells are sql")
 		}
@@ -308,7 +322,7 @@ func TestToolKeyWarning(t *testing.T) {
 
 	t.Run("silent when the key agrees", func(t *testing.T) {
 		nb := parse(t, "---\nnotekit: 1\nnotekit-tool: sqlnote\n---\n"+sqlCell)
-		if warn := ToolKeyWarning(nb); warn != "" {
+		if warn := sqlnote().ToolKeyWarning(nb); warn != "" {
 			t.Errorf("want silence, got %q", warn)
 		}
 	})
@@ -317,17 +331,17 @@ func TestToolKeyWarning(t *testing.T) {
 		// An unknown tool has no lang to compare, and guessing would produce a warning
 		// about a tool that may be perfectly correct. This is the key's whole purpose.
 		nb := parse(t, "---\nnotekit: 1\nnotekit-tool: priortool\n---\n"+sqlCell)
-		if warn := ToolKeyWarning(nb); warn != "" {
+		if warn := sqlnote().ToolKeyWarning(nb); warn != "" {
 			t.Errorf("an unknown tool cannot be contradicted, got %q", warn)
 		}
 	})
 
 	t.Run("silent with no key and with no cells", func(t *testing.T) {
-		if warn := ToolKeyWarning(parse(t, "---\nnotekit: 1\n---\n"+sqlCell)); warn != "" {
+		if warn := sqlnote().ToolKeyWarning(parse(t, "---\nnotekit: 1\n---\n"+sqlCell)); warn != "" {
 			t.Errorf("no key, so nothing to say: %q", warn)
 		}
 		nb := parse(t, "---\nnotekit: 1\nnotekit-tool: clinote\n---\n\njust prose\n")
-		if warn := ToolKeyWarning(nb); warn != "" {
+		if warn := sqlnote().ToolKeyWarning(nb); warn != "" {
 			t.Errorf("no cells, so nothing to contradict: %q", warn)
 		}
 	})
@@ -345,7 +359,7 @@ func TestInspectNeverRefusesOverTheKey(t *testing.T) {
 	if err := os.WriteFile(path, []byte(src), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	warn, err := Inspect(path, "sqlnote", "sql")
+	warn, err := sqlnote().Inspect(path)
 	if err != nil {
 		t.Fatalf("the key must not cause a refusal: %v", err)
 	}
@@ -356,7 +370,7 @@ func TestInspectNeverRefusesOverTheKey(t *testing.T) {
 
 func TestCreateWritesTheAdvisoryKey(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "report.md")
-	if err := Create(path, "sqlnote", doc.NewCell{Heading: "H", Lang: "sql", Body: "SELECT 1;\n"}); err != nil {
+	if err := sqlnote().Create(path, doc.NewCell{Heading: "H", Lang: "sql", Body: "SELECT 1;\n"}); err != nil {
 		t.Fatalf("Create: %v", err)
 	}
 	src, err := os.ReadFile(path)
@@ -371,7 +385,7 @@ func TestCreateWritesTheAdvisoryKey(t *testing.T) {
 		t.Errorf("%s = %q, want %q\n%s", doc.FrontKeyTool, got, "sqlnote", src)
 	}
 	// What it writes must not warn about itself.
-	if warn := ToolKeyWarning(nb); warn != "" {
+	if warn := sqlnote().ToolKeyWarning(nb); warn != "" {
 		t.Errorf("a freshly created notebook must not warn: %s", warn)
 	}
 }

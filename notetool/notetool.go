@@ -1,21 +1,19 @@
-// Package notetool holds the little that the notebook binaries have to agree on.
+// Package notetool implements the obligations the format spec places on a notebook tool
+// rather than on the format: creating a notebook (§10 g), refusing one this binary cannot
+// run (§2.1), and finding the one to open.
 //
-// Everything here was duplicated across cmd/clinote and cmd/sqlnote, and one copy had
-// already drifted: sqlnote suggested clinote for a `bash`-tagged notebook, which clinote
-// refuses too, because the hint was hand-maintained rather than derived from what the
-// executors actually claim. A single [Tools] list is what stops that recurring.
+// Every notebook tool needs these, and they are tedious to get right — so a tool that had to
+// reimplement them would, and two hand-written copies in this repo had already drifted before
+// they were unified.
 //
-// [Tools] is a compiled-in list, so it can only ever name tools in this module — and
-// notebook tools live in their own repositories (clinote v1 and priortool already do). That
-// is what the advisory [doc.FrontKeyTool] key is for: a notebook can name a tool nothing
-// here has heard of. The two are complementary rather than redundant. The key says what the
-// *file* claims; [Tools] says what this *build* knows, which is the only one of the two that
-// can be checked. So the key supplies the suggestion and [Tools] audits it.
+// **The kit still names no tools.** [Tool] carries the calling binary's own name and tag, and
+// its [Tool.Peers] are supplied by the caller. That distinction is the whole reason this
+// package can be public: a registry of binaries baked into a library would invert the
+// dependency, since executors are compiled in and only a module can know its own set.
 //
-// This is deliberately not part of the kit. The kit implements the format and the runtime;
-// which binaries exist and what they are called is neither, and a kit that knew tool names
-// would invert the dependency — tools are compiled in, so only the module can know its own
-// set. internal/ is what keeps that knowledge out of the public API.
+// Peers may be empty, and for a tool in its own repository it usually is. Nothing is lost:
+// [Tool.Suggest] then falls back to the notebook's own advisory [doc.FrontKeyTool] key, which
+// exists precisely because a compiled-in list cannot name a tool from another module.
 package notetool
 
 import (
@@ -31,49 +29,53 @@ import (
 	"github.com/pmuston/notekit/doc"
 )
 
-// Tool is a notebook binary and the info-string tag its executor runs.
+// Peer is another notebook binary that the calling tool knows about, and the tag its
+// executor runs.
+//
+// Exactly one tag, and exact: package run compares tags for equality, so a tool that claims
+// "sh" does not run cells tagged "bash". Recording otherwise would send someone to a second
+// tool that also refuses, which is worse than saying nothing — and is a bug this repo shipped
+// once, from a hand-maintained list that was not derived from what the executors claim.
+type Peer struct {
+	Name string
+	Lang string
+}
+
+// Tool is the calling binary: its own name and tag, plus whatever siblings it knows of.
+//
+// Peers is optional. A tool built in its own repository generally knows of none, and that is
+// a supported configuration rather than a degraded one — see the package comment.
 type Tool struct {
 	// Name is the binary's name, as a user would type it.
 	Name string
 
-	// Lang is the single tag the executor claims — the same value its Lang() returns.
-	// Exactly one, and exact: package run compares tags for equality, so a tool that
-	// claims "sh" does not run cells tagged "bash", and pretending otherwise would send
-	// someone to a second tool that also refuses.
+	// Lang is the single info-string tag this tool's executor runs — the value its
+	// Lang() method returns.
 	Lang string
+
+	// Peers are the other notebook binaries this build knows about. May be nil.
+	Peers []Peer
 }
 
-// Tools is the authoritative list of notebook binaries in this module.
-//
-// Add an entry when a new notebook tool lands, and its executor's Lang must match: the
-// suggestion machinery has no other source of truth. Each tool asserts its own entry in
-// TestToolsListsThisTool — the check has to live there, because a main package cannot be
-// imported — so a mismatch fails that tool's tests rather than misdirecting a user.
-var Tools = []Tool{
-	{Name: "clinote", Lang: "sh"},
-	{Name: "sqlnote", Lang: "sql"},
-}
-
-// LangOf returns the tag the named tool runs, and whether it is known here at all. A tool
-// from another module is unknown, which is not an error — it is the case the advisory key
-// exists to cover.
-func LangOf(name string) (string, bool) {
-	for _, t := range Tools {
-		if t.Name == name {
-			return t.Lang, true
+// langOf returns the tag a named peer runs, and whether this tool knows of it at all. An
+// unknown name is not an error — it is the case the advisory key exists to cover.
+func (t Tool) langOf(name string) (string, bool) {
+	for _, p := range t.Peers {
+		if p.Name == name {
+			return p.Lang, true
 		}
 	}
 	return "", false
 }
 
-// Sibling names the tool that runs any of langs, skipping self. It returns "" when no
-// tool in this module can — which is the honest answer for a tag nothing claims, and
-// better than naming a tool that would refuse in turn.
-func Sibling(langs []string, self string) string {
+// sibling names the peer that runs any of langs, skipping this tool. It returns "" when no
+// peer can — the honest answer for a tag nothing claims, and better than naming a tool that
+// would refuse in turn.
+func (t Tool) sibling(langs []string) string {
 	for _, l := range langs {
-		for _, t := range Tools {
-			if t.Lang == l && t.Name != self {
-				return t.Name
+		for _, p := range t.Peers {
+			if p.Lang == l && p.Name != t.Name {
+				return p.Name
 			}
 		}
 	}
@@ -95,8 +97,8 @@ func Sibling(langs []string, self string) string {
 // The point of checking here at all is *when*: without it, a mismatch surfaced only when
 // someone clicked Run, once per cell, in wording written for a developer — after the server
 // had started and the page had rendered as though it were ready.
-func CheckEngine(path, self, lang string) error {
-	_, err := Inspect(path, self, lang)
+func (t Tool) CheckEngine(path string) error {
+	_, err := t.Inspect(path)
 	return err
 }
 
@@ -107,7 +109,7 @@ func CheckEngine(path, self, lang string) error {
 // — currently only a [doc.FrontKeyTool] value that contradicts the cells. The two are
 // separate returns because the key must never cause a refusal (§2.1): it is advisory, and
 // treating a stale value as authoritative is exactly the failure it is defined to avoid.
-func Inspect(path, self, lang string) (warn string, err error) {
+func (t Tool) Inspect(path string) (warn string, err error) {
 	src, rerr := os.ReadFile(path)
 	if rerr != nil {
 		return "", rerr
@@ -117,7 +119,7 @@ func Inspect(path, self, lang string) (warn string, err error) {
 		return "", fmt.Errorf("%s: %w", path, perr)
 	}
 	langs := nb.Langs()
-	if w := ToolKeyWarning(nb); w != "" {
+	if w := t.ToolKeyWarning(nb); w != "" {
 		warn = path + ": " + w
 	}
 
@@ -125,13 +127,13 @@ func Inspect(path, self, lang string) (warn string, err error) {
 		return warn, nil
 	}
 	for _, l := range langs {
-		if l == lang {
+		if l == t.Lang {
 			return warn, nil
 		}
 	}
 	msg := fmt.Sprintf("%s has %s cells, and %s runs %q cells",
-		path, quoteList(langs), self, lang)
-	if sug := Suggest(nb, self); sug != "" {
+		path, quoteList(langs), t.Name, t.Lang)
+	if sug := t.Suggest(nb); sug != "" {
 		msg += "\n  try: " + sug + " " + path
 	}
 	return warn, errors.New(msg)
@@ -142,11 +144,11 @@ func Inspect(path, self, lang string) (warn string, err error) {
 // The notebook's own [doc.FrontKeyTool] wins, because it is the only source that can name a
 // tool this build has never heard of. [Sibling] is the fallback for the notebooks that carry
 // no key — every notebook written before the key existed, and any written by hand.
-func Suggest(nb *doc.Notebook, self string) string {
-	if claimed := nb.Front()[doc.FrontKeyTool]; claimed != "" && claimed != self {
+func (t Tool) Suggest(nb *doc.Notebook) string {
+	if claimed := nb.Front()[doc.FrontKeyTool]; claimed != "" && claimed != t.Name {
 		return claimed
 	}
-	return Sibling(nb.Langs(), self)
+	return t.sibling(nb.Langs())
 }
 
 // ToolKeyWarning reports a [doc.FrontKeyTool] value that contradicts the notebook's cells,
@@ -158,12 +160,12 @@ func Suggest(nb *doc.Notebook, self string) string {
 //
 // This is a warning and never more. The cells decide what runs; the key is hand-editable
 // text, and a stale value is expected rather than exceptional.
-func ToolKeyWarning(nb *doc.Notebook) string {
+func (t Tool) ToolKeyWarning(nb *doc.Notebook) string {
 	claimed := nb.Front()[doc.FrontKeyTool]
 	if claimed == "" {
 		return ""
 	}
-	claimedLang, known := LangOf(claimed)
+	claimedLang, known := t.langOf(claimed)
 	if !known {
 		return ""
 	}
@@ -193,7 +195,7 @@ func ToolKeyWarning(nb *doc.Notebook) string {
 //
 // An existing file is never touched. The file is the artifact, so overwriting one on a
 // mistyped path would destroy work no tool can recover, and refusing costs one command.
-func Create(path, self string, first doc.NewCell) error {
+func (t Tool) Create(path string, first doc.NewCell) error {
 	if _, err := os.Stat(path); err == nil {
 		return fmt.Errorf("%s already exists", path)
 	} else if !errors.Is(err, os.ErrNotExist) {
@@ -202,7 +204,7 @@ func Create(path, self string, first doc.NewCell) error {
 	// Write the advisory key: this is the one moment a tool knows for certain which tool a
 	// notebook is for, so recording it costs nothing and spares the next reader a guess.
 	src, err := doc.Scaffold(TitleFromPath(path),
-		[]doc.FrontKey{{Key: doc.FrontKeyTool, Value: self}}, first)
+		[]doc.FrontKey{{Key: doc.FrontKeyTool, Value: t.Name}}, first)
 	if err != nil {
 		return err
 	}

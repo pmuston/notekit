@@ -35,7 +35,8 @@ import (
 	"time"
 
 	"github.com/pmuston/notekit/doc"
-	"github.com/pmuston/notekit/internal/notetool"
+	"github.com/pmuston/notekit/internal/siblings"
+	"github.com/pmuston/notekit/notetool"
 	"github.com/pmuston/notekit/run"
 	"github.com/pmuston/notekit/serve"
 )
@@ -121,6 +122,10 @@ func runMain(args []string, stdout, stderr io.Writer) int {
 		return exitUsage
 	}
 
+	// What this binary is, and what it knows of its siblings. Peers comes from the module
+	// rather than from the kit: notetool names no tools of its own.
+	self := notetool.Tool{Name: "sqlnote", Lang: ex.Lang(), Peers: siblings.All}
+
 	var path string
 	if sub == "new" {
 		if fs.NArg() != 1 {
@@ -128,7 +133,7 @@ func runMain(args []string, stdout, stderr io.Writer) int {
 			return exitUsage
 		}
 		path = fs.Arg(0)
-		if err := notetool.Create(path, "sqlnote", starterCell(ex.Lang())); err != nil {
+		if err := self.Create(path, starterCell(ex.Lang())); err != nil {
 			fmt.Fprintf(stderr, "sqlnote: %v\n", err)
 			return exitUsage
 		}
@@ -141,7 +146,7 @@ func runMain(args []string, stdout, stderr io.Writer) int {
 		}
 		// A refusal stops us; a warning is said and stepped over. The advisory tool key
 		// must never decide whether a notebook opens (§2.1).
-		warn, err := notetool.Inspect(path, "sqlnote", ex.Lang())
+		warn, err := self.Inspect(path)
 		if err != nil {
 			fmt.Fprintf(stderr, "sqlnote: %v\n", err)
 			return exitUsage

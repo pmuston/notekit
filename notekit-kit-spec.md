@@ -162,6 +162,30 @@ format tracks no staleness by adjudication (harvest D4), so the results left on 
 after a move are not marked as belonging to a previous order, and nothing in the kit may
 invent such marking. Re-running is the user's decision.
 
+### 3.6 `notetool` — the tool-side obligations
+
+The format places a few duties on a *tool* rather than on the format, and every notebook
+binary needs all of them: creating a notebook (§10 g), refusing one whose cells it cannot run
+and naming what to try instead (§2.1), and finding the notebook to open when none was given.
+
+- `Tool` carries the calling binary's own name and language tag, and its `Peers` — the other
+  notebook binaries it knows of. Methods: `Create`, `Inspect` (refusal plus any warning),
+  `CheckEngine`, `Suggest`, `ToolKeyWarning`.
+- Package-level, because they need no such knowledge: `FindNotebooks`, `Resolve`,
+  `TitleFromPath`.
+- **`Peers` is supplied by the caller, never by this package.** A registry of binary names
+  compiled into a library would invert the dependency: executors are compiled in, so only a
+  module can know its own set. That parameterisation is what lets this be public API at all
+  while the kit still names no tools.
+- **`Peers` may be empty**, and for a tool in its own repository it usually is. Nothing is
+  lost, because `Suggest` then falls back to the notebook's advisory `notekit-tool` key
+  (§2.1) — which exists precisely because a compiled-in list cannot name a tool from another
+  module. A tool with no peers still suggests correctly for any notebook that names its own.
+- The list, where a module has one, belongs to that module. In this repo it is
+  `internal/siblings`, and each tool asserts its **own** entry against its own `Lang`: a main
+  package cannot be imported, so no single test can check the whole list, but between them the
+  tools do.
+
 ## 4. What a tool binary looks like
 
 Illustrative responsibility split for clinote v2 (its own spec follows as gate 3):
