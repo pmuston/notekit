@@ -23,11 +23,11 @@ Status: draft v1 · Target surface: Go/Echo/HTMX only (harvest D2).
 
 ## 2. Non-goals
 
-- No UI abstraction beyond good package layering; SwiftUI or other surfaces are
-  separate implementations, not consumers (harvest D2).
-- No crystallisation, staleness, or PDF machinery in core (harvest D4) — priortool
-  remains its own tool; if it later adopts notekit's document model, that is a
-  priortool decision.
+- No UI abstraction beyond good package layering; a native desktop UI or any other
+  surface is a separate implementation, not a consumer (harvest D2).
+- No crystallisation, staleness, or PDF machinery in core (harvest D4) — the prior
+  figure-plate tool keeps all of that and remains its own tool; if it later adopts
+  notekit's document model, that is its decision to make, not this library's.
 - No multi-user, auth, CI/headless execution, streaming, or cell chaining.
 - No plugin loading; executors are compiled in. Single static binary per tool.
 

@@ -107,8 +107,8 @@ the artifact; any app is merely a runner over it. Notebooks must render faithful
 GitHub with no app-specific cruft visible, stay grep-able and diff-friendly, and
 round-trip byte-identically.
 
-This is a third-time-through design: clinote, graphtool, and priortool each independently
-converged on one CommonMark file per notebook, fenced blocks as cells, results
+This is a third-time-through design: clinote and two unpublished sibling projects (see the
+provenance markers above) each independently converged on one CommonMark file per notebook, fenced blocks as cells, results
 persisted into or beside the file, a single static binary, offline capability, and
 plain-text durable artifacts. notekit extracts that convergence into one library so
 the next notebook tool is an executor plus a `main`.

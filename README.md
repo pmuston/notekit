@@ -30,10 +30,10 @@ notebook tool is an executor plus a `main`.
 
 ## Why a library
 
-clinote, graphtool and priortool each independently converged on the same design: one
-CommonMark file per notebook, fenced blocks as cells, results persisted into or beside the
-file, a single static binary, offline capability, plain-text durable artifacts. This is
-that convergence extracted once, third time through.
+Three notebook tools — clinote and two unpublished sibling projects — each independently
+converged on the same design: one CommonMark file per notebook, fenced blocks as cells,
+results persisted into or beside the file, a single static binary, offline capability,
+plain-text durable artifacts. This is that convergence extracted once, third time through.
 
 ## The tools
 

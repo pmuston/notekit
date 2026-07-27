@@ -605,10 +605,10 @@ re-encode cannot agree byte for byte. Recorded in §9.
 
 ### 8.7 `VERIFY AGAINST PRIORTOOL` (§8) — ✅ RESOLVED, format spec §8
 
-Verified against the priortool *implementation* at `../priortool`, not just its spec, which is
+Verified against priortool's *implementation*, not just its spec, which is
 what harvest open question 3 asked for. Four findings:
 
-- **Directory name confirmed.** priortool's `sidecar.AssetsDir` derives
+- **Directory name confirmed.** priortool's own sidecar-directory helper derives
   `<stem>.assets` exactly as §8 says.
 - **The payload rule was too thin, and is corrected.** §8 said the `.json` holds "the full
   data payload". priortool persists one JSON per artifact set holding provenance, camera
@@ -674,5 +674,5 @@ over a naming concern. §8 falls back to `<id>.<ext>`, so nothing depends on it.
    round-trip, report orphans and stale sidecars via `ClassifySidecars`.
 
 Nothing is open. Every question §8 raised is resolved, and the two that needed the priortool
-source (§8.7 sidecars, §8.9 slugs) were settled against the implementation at
-`../priortool`.
+source (§8.7 sidecars, §8.9 slugs) were settled against its implementation rather than its
+spec.

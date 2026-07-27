@@ -87,9 +87,10 @@ Sigma.js/graphology, harvest V2):
 One lifecycle in v1: **volatile**. Every run replaces the cell's result blocks and
 overwrites its sidecar files. There is no freeze, no staleness, no protection.
 
-Crystallisation — compose-then-freeze with staleness tracking, as built in priortool —
+Crystallisation — compose-then-freeze with staleness tracking, as built in a prior
+figure-plate tool —
 is explicitly *not* a core lifecycle (harvest D4). It is the exception, and remains
-domain machinery inside priortool-class tools. If a second crystallising tool ever
+domain machinery inside the tools that need it. If a second crystallising tool ever
 appears, lifecycle keys get standardised then (format spec FUTURE), not before.
 
 ## 5. Conformance

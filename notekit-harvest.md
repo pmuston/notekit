@@ -65,7 +65,7 @@ These go into the notekit spec substantially as-is.
 | # | Requirement | Provenance |
 |---|---|---|
 | V1 | Core result kinds: `text` (default), `csv`, `jsonl` — the latter two render as sortable tables in the live UI (JSONL flattened to columns). | cli |
-| V2 | Graph results render live via Sigma.js/graphology (reusing the graphstack stack). | cy, cyp |
+| V2 | Graph results render live via Sigma.js/graphology (reusing an existing graph-rendering stack). | cy, cyp |
 | V3 | Print-quality crystallisation happens in the browser (WebGL context lives there); server persists the artifact. Interactive compose → freeze is a legitimate result lifecycle, distinct from pure re-runnable results. | cyp |
 | V4 | Deterministic layout/rendering valued over live physics for durable artifacts (seeded layouts, persisted coordinates). | cyp |
 | V5 | Prose is editable inline in the UI, but there is no rich editor; source is authoritative. | cli, cy |
@@ -93,7 +93,7 @@ rather than reinvented — see open question 4. Positional adjacency remains the
 output-pairing rule within a cell's span.
 
 **D2 — UI surface: Go/Echo/HTMX only.** ✅ notekit v1 targets the Go/Echo/HTMX
-surface exclusively. A SwiftUI notebook would be a separate implementation borrowing
+surface exclusively. A native-desktop notebook would be a separate implementation borrowing
 ideas where relevant, not a consumer of this kit. The kit still keeps document model,
 runtime, and server as distinct packages — good layering for its own sake, not UI
 abstraction as a requirement.
