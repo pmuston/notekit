@@ -1804,3 +1804,43 @@ func TestLocalFilesDoNotShadowRoutes(t *testing.T) {
 		t.Errorf("POST /cells/0/run = %d, want 200 — the catch-all shadowed it", run.Code)
 	}
 }
+
+// A tool passes whatever the user typed, so `clinote fig.md` leaves the notebook
+// path relative. Comparing a relative resolved path against an absolute base
+// refuses every file — and every test above uses t.TempDir(), which is absolute,
+// so none of them would notice.
+func TestLocalFilesWithARelativeNotebookPath(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "chart.svg"), []byte(svg), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	src := "---\nnotekit: 1\nlocal-files: true\n---\n\n## A\n\n```echo\nx\n```\n"
+	if err := os.WriteFile(filepath.Join(dir, "n.md"), []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	old, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = os.Chdir(old) }()
+
+	sch := run.New()
+	t.Cleanup(func() { _ = sch.Shutdown(context.Background()) })
+	if err := sch.Open(context.Background(), "n.md", echoexec.New()); err != nil {
+		t.Fatal(err)
+	}
+	// "n.md", exactly as a command line would give it.
+	s, err := New(sch, "n.md", WithLocalFiles(true))
+	if err != nil {
+		t.Fatal(err)
+	}
+	rec := httptest.NewRecorder()
+	s.Echo().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/chart.svg", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("a relative notebook path must still serve its files: got %d", rec.Code)
+	}
+}

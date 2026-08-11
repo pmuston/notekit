@@ -50,7 +50,13 @@ func (s *Server) handleLocalFile(c echo.Context) error {
 		}
 	}
 
-	base := filepath.Dir(s.path)
+	// Absolute before anything else. The notebook path is whatever the tool passed
+	// — `clinote fig.md` leaves it relative — and comparing a relative resolved
+	// path against an absolute base refuses everything, silently and always.
+	base, err := filepath.Abs(filepath.Dir(s.path))
+	if err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, "cannot resolve the notebook directory")
+	}
 	full := filepath.Join(base, filepath.Clean("/"+rel))
 
 	resolved, err := filepath.EvalSymlinks(full)
