@@ -67,6 +67,7 @@ Reserved keys (the complete set):
 | `notekit-tool` | no | Advisory: the tool the notebook was written for (§2.1). Reserved so tools agree on its spelling; it never decides what runs. |
 | `width` | no | Presentation hint (§2.2). `full` requests the full window width; absent or any other value means the default reading column. |
 | `editable` | no | Authoring hint (§2.3). `false` asks a reader not to offer editing. Absent or any other value means editable. Never gates running. |
+| `local-files` | no | Declaration (§2.4): the notebook displays files from its own directory. Advisory — it requests, and grants nothing. |
 
 All other keys are **passthrough**: preserved byte-for-byte on round-trip, exposed
 to the runtime uninterpreted. Tool-specific keys should be namespaced by convention
@@ -201,6 +202,51 @@ write cannot use this key to acquire anything.
 
 Only `false` disables editing. Any other value, and absence, mean editable, on the
 same reasoning as §2.2.
+
+### 2.4 `local-files` declares a need and grants nothing
+
+A notebook that shows a figure it generated refers to it the ordinary way:
+
+```markdown
+![jacket loop](jacket-loop.svg)
+```
+
+That is prose, not a result (§8), and the file sits beside the notebook rather than
+in the sidecar directory. For the image to appear, a reader has to serve files from
+the notebook's own directory — a wider thing to do than serving `<stem>.assets/`,
+because the notebook's directory is wherever the user happens to keep it, which may
+be a home directory or a repository root.
+
+`local-files: true` says the notebook expects this. **It is a request, and a reader
+must not treat it as permission.**
+
+The rule §2.2 gives for presentation keys is why. Reading `width` from a notebook is
+safe because honouring it can only choose a layout; reading a *capability* from a
+notebook is not safe, because the notebook is exactly what an untrusted party
+controls. A file that could authorise reading its neighbours would be authorising
+itself.
+
+So the grant belongs outside the file — a command-line flag, a configuration the
+user owns, a prompt. What the key buys is that a reader can *explain* a missing
+image ("this notebook displays local files; re-run with …") instead of leaving a
+broken image and no reason. That is the same division as `notekit-tool` (§2.1):
+the notebook says what it is for, the runtime decides what happens.
+
+**Normative rules**
+
+- A conforming tool must not enable local-file serving on the strength of this key
+  alone.
+- A tool that does not serve local files at all is conforming; the key is then
+  informational, and saying so in the UI is encouraged but not required.
+- When serving is enabled, it must be confined to the notebook's own directory.
+  Paths that escape it — lexically, percent-encoded, or through a symbolic link —
+  must be refused, as must dot-prefixed path components, which is what keeps
+  `.git/` and `.env` out of reach when a notebook sits in a repository root.
+- Served files must be sent with headers that stop the browser executing them:
+  an image format is a document format, and SVG in particular can carry script.
+
+Absence means no such declaration. Only `true` declares; any other value, and
+absence, mean the notebook makes no claim, on the same reasoning as §2.2.
 
 ## 3. Document structure
 

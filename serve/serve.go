@@ -71,6 +71,12 @@ type Server struct {
 	// rather than a bool because "unset" and "false" are different answers: unset
 	// defers to the notebook, false overrides it.
 	editable *bool
+
+	// localFiles enables serving files from the notebook's own directory (§2.4).
+	// A plain bool, not a pointer, because there is nothing to defer to: the
+	// notebook's `local-files` key requests this and cannot grant it, so the
+	// answer comes from the tool or it is no.
+	localFiles bool
 }
 
 // widthFull is the one value §2.2 defines. Anything else means the default
@@ -180,6 +186,21 @@ func WithEditing(editable bool) Option {
 	return func(s *Server) { s.editable = &editable }
 }
 
+// WithLocalFiles serves files from the notebook's own directory, so an ordinary
+// image link in the prose resolves (§2.4).
+//
+// This is the grant, and it deliberately comes from the tool rather than the
+// notebook: a notebook's `local-files: true` requests it and cannot authorise it,
+// because the notebook is the part an untrusted party controls. Expose it as
+// something the user chooses — a flag, a configuration, a prompt.
+//
+// Serving is confined to the notebook's directory: paths escaping it, dot-prefixed
+// components, and directories are all refused, and files are sent with headers
+// that stop the browser executing them.
+func WithLocalFiles(enabled bool) Option {
+	return func(s *Server) { s.localFiles = enabled }
+}
+
 // WithTitle overrides the displayed title, which otherwise comes from the notebook's
 // `title` front-matter key and falls back to the file name (§2).
 func WithTitle(title string) Option {
@@ -270,6 +291,15 @@ func (s *Server) Register(e *echo.Echo) {
 	// Embedded assets, so a tool is a single static binary.
 	g.GET("/assets/*", echo.WrapHandler(http.StripPrefix(s.base+"/assets/",
 		http.FileServer(http.FS(s.assets)))))
+
+	// Files beside the notebook, only when the tool granted it (§2.4). Registered
+	// last and as a catch-all because an image link in prose is relative — the
+	// browser asks for "{base}/chart.svg" — and Echo prefers the static and
+	// parameterised routes above to this one. When the grant is absent the route
+	// does not exist at all.
+	if s.localFiles {
+		g.GET("/*", s.handleLocalFile)
+	}
 }
 
 // Echo returns a ready Echo instance with the server's routes and sensible middleware.

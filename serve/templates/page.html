@@ -19,6 +19,12 @@
              hx-swap="none">Run all</button></p>
   {{end}}
 
+  {{if .LocalFilesUngranted}}
+  <p class="nk-notice">This notebook displays files from its own directory, which is
+     not enabled. Images will not appear until the tool is started with local files
+     allowed — the notebook cannot grant this itself.</p>
+  {{end}}
+
   {{template "prose" .Preamble}}
 
   {{range .Cells}}{{template "cell" .}}{{end}}

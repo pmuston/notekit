@@ -245,3 +245,7 @@ textarea.nk-prose-edit {
 /* `editable: false` (§2.3): says why the editing affordances are absent, rather
    than leaving a reader to wonder where they went. */
 .nk-readonly { color: var(--nk-muted); font-size: 0.9rem; border-top: 1px solid var(--nk-border); padding-top: 1rem; }
+
+/* `local-files: true` declared but not granted (§2.4): explains a missing image
+   rather than leaving a reader to guess. */
+.nk-notice { color: var(--nk-muted); font-size: 0.9rem; border-left: 3px solid var(--nk-border); padding: 0.5rem 0 0.5rem 0.75rem; margin: 0 0 1.5rem; }

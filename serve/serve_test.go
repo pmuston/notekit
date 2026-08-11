@@ -1624,3 +1624,183 @@ func TestWithEditingOverridesTheNotebook(t *testing.T) {
 		t.Errorf("WithEditing(true) should override editable: false:\n%s", got)
 	}
 }
+
+// --- local files (§2.4) ---------------------------------------------------------
+
+const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><rect/></svg>`
+
+// openWithFile serves a notebook and writes name beside it.
+func openWithFile(t *testing.T, name, content string, opts ...Option) (*echo.Echo, string) {
+	t.Helper()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "n.md")
+	src := "---\nnotekit: 1\nlocal-files: true\n---\n\n![x](" + name + ")\n\n## A\n\n```echo\nx\n```\n"
+	if err := os.WriteFile(path, []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if name != "" {
+		full := filepath.Join(dir, name)
+		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(full, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	sch := run.New()
+	t.Cleanup(func() { _ = sch.Shutdown(context.Background()) })
+	if err := sch.Open(context.Background(), path, echoexec.New()); err != nil {
+		t.Fatal(err)
+	}
+	s, err := New(sch, path, opts...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return s.Echo(), dir
+}
+
+func TestLocalFilesServedWhenGranted(t *testing.T) {
+	e, _ := openWithFile(t, "chart.svg", svg, WithLocalFiles(true))
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/chart.svg", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), "<rect") {
+		t.Errorf("body not served: %q", rec.Body.String())
+	}
+	// SVG can carry script; it must be inert even on direct navigation (§2.4).
+	if got := rec.Header().Get("Content-Security-Policy"); got != "sandbox" {
+		t.Errorf("Content-Security-Policy = %q, want sandbox", got)
+	}
+	if got := rec.Header().Get("X-Content-Type-Options"); got != "nosniff" {
+		t.Errorf("X-Content-Type-Options = %q, want nosniff", got)
+	}
+}
+
+func TestLocalFilesInSubdirectory(t *testing.T) {
+	e, _ := openWithFile(t, "img/chart.svg", svg, WithLocalFiles(true))
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/img/chart.svg", nil))
+	if rec.Code != http.StatusOK {
+		t.Errorf("status = %d, want 200", rec.Code)
+	}
+}
+
+// The declaration grants nothing: without the tool's grant there is no route.
+func TestNotebookCannotGrantItself(t *testing.T) {
+	e, _ := openWithFile(t, "chart.svg", svg) // local-files: true, no WithLocalFiles
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/chart.svg", nil))
+	if rec.Code == http.StatusOK {
+		t.Fatal("a notebook must not be able to authorise serving its own directory")
+	}
+
+	// And the page explains the missing image rather than leaving it a mystery.
+	page := httptest.NewRecorder()
+	e.ServeHTTP(page, httptest.NewRequest(http.MethodGet, "/", nil))
+	if !strings.Contains(page.Body.String(), "nk-notice") {
+		t.Errorf("the page should explain that local files are not enabled:\n%s", page.Body.String())
+	}
+}
+
+// Containment is the whole handler: nothing above the notebook's directory.
+func TestLocalFilesContainment(t *testing.T) {
+	e, dir := openWithFile(t, "chart.svg", svg, WithLocalFiles(true))
+
+	secret := filepath.Join(filepath.Dir(dir), "secret.txt")
+	if err := os.WriteFile(secret, []byte("TOPSECRET"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Remove(secret) })
+
+	for _, p := range []string{
+		"/../secret.txt",
+		"/..%2Fsecret.txt",
+		"/%2e%2e%2fsecret.txt",
+		"/foo/../../secret.txt",
+	} {
+		rec := httptest.NewRecorder()
+		e.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, p, nil))
+		if strings.Contains(rec.Body.String(), "TOPSECRET") {
+			t.Errorf("%s escaped the notebook directory", p)
+		}
+		if rec.Code == http.StatusOK {
+			t.Errorf("%s = 200, want a refusal", p)
+		}
+	}
+}
+
+// A symlink inside the directory could otherwise point anywhere, and no amount of
+// URL normalisation would catch it.
+func TestLocalFilesSymlinkEscapeRefused(t *testing.T) {
+	e, dir := openWithFile(t, "chart.svg", svg, WithLocalFiles(true))
+
+	outside := filepath.Join(t.TempDir(), "outside.txt")
+	if err := os.WriteFile(outside, []byte("OUTSIDE"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(dir, "link.txt")); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/link.txt", nil))
+	if strings.Contains(rec.Body.String(), "OUTSIDE") || rec.Code == http.StatusOK {
+		t.Error("a symlink out of the notebook directory must be refused")
+	}
+}
+
+// Keeps .git/ and .env unreachable when a notebook sits in a repository root.
+func TestLocalFilesDotfilesRefused(t *testing.T) {
+	e, dir := openWithFile(t, "chart.svg", svg, WithLocalFiles(true))
+	if err := os.WriteFile(filepath.Join(dir, ".env"), []byte("SECRET=1"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, ".git", "config"), []byte("[core]"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range []string{"/.env", "/.git/config"} {
+		rec := httptest.NewRecorder()
+		e.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, p, nil))
+		if rec.Code == http.StatusOK {
+			t.Errorf("%s was served; dotfiles must be refused", p)
+		}
+	}
+}
+
+func TestLocalFilesDirectoryNotServed(t *testing.T) {
+	e, dir := openWithFile(t, "chart.svg", svg, WithLocalFiles(true))
+	if err := os.MkdirAll(filepath.Join(dir, "sub"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/sub", nil))
+	if rec.Code == http.StatusOK {
+		t.Error("a directory must not be served")
+	}
+}
+
+// A catch-all is the obvious way to shadow the real routes; it must not.
+func TestLocalFilesDoNotShadowRoutes(t *testing.T) {
+	e, dir := openWithFile(t, "chart.svg", svg, WithLocalFiles(true))
+	// Files named after real routes must not be able to hijack them.
+	for _, name := range []string{"cells", "runs", "prose"} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte("HIJACKED"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/", nil))
+	if rec.Code != http.StatusOK || strings.Contains(rec.Body.String(), "HIJACKED") {
+		t.Errorf("the notebook page was shadowed: %d", rec.Code)
+	}
+	run := httptest.NewRecorder()
+	e.ServeHTTP(run, httptest.NewRequest(http.MethodPost, "/cells/0/run", nil))
+	if run.Code != http.StatusOK {
+		t.Errorf("POST /cells/0/run = %d, want 200 — the catch-all shadowed it", run.Code)
+	}
+}
