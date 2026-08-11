@@ -42,6 +42,10 @@ type pageView struct {
 	// but the tool did not grant it (§2.4). It is the whole reason that key
 	// exists: without it a reader sees a broken image and no explanation.
 	LocalFilesUngranted bool
+
+	// Env reports the notebook's declared environment (§2.5) — names only, and
+	// never a blocker.
+	Env envReport
 }
 
 // cellView is one cell's template data.
@@ -155,6 +159,7 @@ func (s *Server) buildPage() (pageView, error) {
 		CanEdit:     canEdit,
 
 		LocalFilesUngranted: !s.localFiles && wantsLocalFiles(nb.Front()),
+		Env:                 checkRequires(nb.Front()),
 	}
 	cells := nb.Cells()
 	for i, c := range cells {

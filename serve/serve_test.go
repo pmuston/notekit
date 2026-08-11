@@ -1844,3 +1844,77 @@ func TestLocalFilesWithARelativeNotebookPath(t *testing.T) {
 		t.Fatalf("a relative notebook path must still serve its files: got %d", rec.Code)
 	}
 }
+
+// --- requires (§2.5) ------------------------------------------------------------
+
+const requiresCell = "\n## A\n\n```echo\nx\n```\n"
+
+func TestRequiresNamesMissingVariables(t *testing.T) {
+	t.Setenv("NK_PRESENT", "s3cret-sentinel-9f2a")
+	t.Setenv("NK_EMPTY", "")
+	got := servePage(t, "---\nnotekit: 1\nrequires: [NK_PRESENT, NK_EMPTY, NK_UNSET]\n---\n"+requiresCell)
+
+	for _, want := range []string{"NK_EMPTY", "NK_UNSET"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("%s should be reported missing:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "NK_PRESENT") {
+		t.Errorf("a variable that is set must not be reported:\n%s", got)
+	}
+	// Names only — §2.5 reads nothing but whether each is non-empty. A distinctive
+	// sentinel, because "value" appears in the page's own form attributes.
+	if strings.Contains(got, "s3cret-sentinel-9f2a") {
+		t.Error("a variable's VALUE must never reach the page")
+	}
+}
+
+func TestRequiresSaysNothingWhenAllPresent(t *testing.T) {
+	t.Setenv("NK_A", "1")
+	t.Setenv("NK_B", "2")
+	got := servePage(t, "---\nnotekit: 1\nrequires: [NK_A, NK_B]\n---\n"+requiresCell)
+	if strings.Contains(got, "Missing from the environment") {
+		t.Errorf("nothing should be reported when all are set:\n%s", got)
+	}
+}
+
+// Both value forms §2.5 defines are the same thing to a reader.
+func TestRequiresAcceptsBothInlineForms(t *testing.T) {
+	for _, form := range []string{"[NK_X, NK_Y]", "NK_X, NK_Y"} {
+		got := servePage(t, "---\nnotekit: 1\nrequires: "+form+"\n---\n"+requiresCell)
+		if !strings.Contains(got, "NK_X") || !strings.Contains(got, "NK_Y") {
+			t.Errorf("form %q was not read:\n%s", form, got)
+		}
+	}
+}
+
+// A YAML block list leaves the key present with no value. §2.5 requires saying so
+// rather than reporting nothing, because an empty declaration is never intended.
+func TestRequiresBlockListIsReportedAsAMistake(t *testing.T) {
+	got := servePage(t, "---\nnotekit: 1\nrequires:\n  - NK_BLOCK\n---\n"+requiresCell)
+	if !strings.Contains(got, "requires:") || !strings.Contains(got, "inline") {
+		t.Errorf("a block list should be called out, naming the inline form:\n%s", got)
+	}
+}
+
+// Reporting, never blocking: the notebook opens and its cells run.
+func TestRequiresDoesNotBlock(t *testing.T) {
+	e, _ := openNotebook(t, "---\nnotekit: 1\nrequires: [NK_DEFINITELY_UNSET]\n---\n"+requiresCell)
+	page := httptest.NewRecorder()
+	e.ServeHTTP(page, httptest.NewRequest(http.MethodGet, "/", nil))
+	if page.Code != http.StatusOK {
+		t.Fatalf("the notebook must still open: got %d", page.Code)
+	}
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/cells/0/run", nil))
+	if rec.Code != http.StatusOK {
+		t.Errorf("cells must still run: got %d", rec.Code)
+	}
+}
+
+func TestNoRequiresKeyIsSilent(t *testing.T) {
+	got := servePage(t, "---\nnotekit: 1\n---\n"+requiresCell)
+	if strings.Contains(got, "nk-notice") {
+		t.Errorf("a notebook without the key should say nothing:\n%s", got)
+	}
+}

@@ -68,6 +68,7 @@ Reserved keys (the complete set):
 | `width` | no | Presentation hint (§2.2). `full` requests the full window width; absent or any other value means the default reading column. |
 | `editable` | no | Authoring hint (§2.3). `false` asks a reader not to offer editing. Absent or any other value means editable. Never gates running. |
 | `local-files` | no | Declaration (§2.4): the notebook displays files from its own directory. Advisory — it requests, and grants nothing. |
+| `requires` | no | Declaration (§2.5): environment variables the notebook needs. A reader reports the missing ones; it never blocks. |
 
 All other keys are **passthrough**: preserved byte-for-byte on round-trip, exposed
 to the runtime uninterpreted. Tool-specific keys should be namespaced by convention
@@ -247,6 +248,50 @@ the notebook says what it is for, the runtime decides what happens.
 
 Absence means no such declaration. Only `true` declares; any other value, and
 absence, mean the notebook makes no claim, on the same reasoning as §2.2.
+
+### 2.5 `requires` names the environment a notebook needs
+
+A notebook that reaches a database or an API needs credentials, and they belong in
+the environment rather than in a cell — a cell body is written to disk verbatim,
+so a secret set in one is a secret committed. `requires` says which variables have
+to be there:
+
+```yaml
+requires: [NEO4J_PW, NEO4J_URI]
+```
+
+A reader reports any that are unset or empty and **carries on**. Blocking would be
+wrong: a notebook should open for reading without its credentials to hand, and the
+cells that need them will fail on their own terms, which is a better message than a
+refusal at the front door.
+
+It reports names, never values. Nothing is read from the environment beyond
+whether each variable is non-empty, and honouring the key can do no more than
+display a list — so it stays safe in front matter under §2.2's rule.
+
+It also documents the notebook. Someone opening one learns what it needs without
+reading down to the first cell that happens to reference a variable.
+
+**Value form.** A comma-separated list of names, or a YAML inline sequence — these
+are the same thing to a reader:
+
+```yaml
+requires: NEO4J_PW, NEO4J_URI
+requires: [NEO4J_PW, NEO4J_URI]
+```
+
+A YAML **block** sequence does not work:
+
+```yaml
+requires:            # ← this reports nothing
+  - NEO4J_PW
+```
+
+Front matter is read without a YAML marshaller, which is how §2 guarantees
+byte-for-byte round-trip; a key introducing a nested block is therefore visible but
+its items are not. Rather than silently reporting nothing, a tool **must** treat a
+`requires` key with an empty value as a mistake and say so, naming the inline form.
+An empty declaration is never what someone meant.
 
 ## 3. Document structure
 
