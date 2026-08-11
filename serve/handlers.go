@@ -135,7 +135,7 @@ func (s *Server) handleProseGet(c echo.Context) error {
 		return s.flash(c, http.StatusBadRequest, err.Error())
 	}
 	editing := c.QueryParam("edit") != ""
-	return s.html(c, http.StatusOK, "prose", s.proseViewFor(src, ref, span, editing))
+	return s.html(c, http.StatusOK, "prose", s.proseViewFor(src, ref, span, editing, s.canEdit(nb)))
 }
 
 // handleProsePut saves a prose edit.
@@ -177,7 +177,7 @@ func (s *Server) handleProsePut(c echo.Context) error {
 	if err != nil {
 		return s.flash(c, http.StatusInternalServerError, err.Error())
 	}
-	return s.html(c, http.StatusOK, "prose", s.proseViewFor(src2, ref, span2, false))
+	return s.html(c, http.StatusOK, "prose", s.proseViewFor(src2, ref, span2, false, s.canEdit(nb2)))
 }
 
 // save writes the notebook atomically, for the same reason package run does: the file is
@@ -286,7 +286,7 @@ func (s *Server) handleSourceGet(c echo.Context) error {
 		return s.flash(c, http.StatusBadRequest, err.Error())
 	}
 	editing := c.QueryParam("edit") != ""
-	return s.html(c, http.StatusOK, "cell", s.buildCell(src, index, cells[index], editing))
+	return s.html(c, http.StatusOK, "cell", s.buildCell(src, index, cells[index], editing, s.canEdit(nb)))
 }
 
 // handleSourcePut saves an edited cell source.
@@ -339,7 +339,7 @@ func (s *Server) handleSourcePut(c echo.Context) error {
 	if err != nil {
 		return s.flash(c, http.StatusInternalServerError, err.Error())
 	}
-	return s.html(c, http.StatusOK, "cell", s.buildCell(src2, index, nb2.Cells()[index], false))
+	return s.html(c, http.StatusOK, "cell", s.buildCell(src2, index, nb2.Cells()[index], false, s.canEdit(nb2)))
 }
 
 // handleAddCell inserts a new cell (§10 f).

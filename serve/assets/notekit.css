@@ -39,6 +39,11 @@ body {
 
 main { max-width: 52rem; margin: 0 auto; }
 
+/* `width: full` in the notebook (§2.2): use the whole window, for notebooks whose
+   results are wide — tables, long paths, log lines. A small margin keeps text off
+   the edge. Presentation only. */
+main.nk-wide { max-width: none; margin: 0; padding: 0 1.5rem; }
+
 h1.nk-title { font-size: 1.6rem; margin: 0 0 0.25rem; }
 .nk-path { color: var(--nk-muted); font: 0.85rem var(--nk-mono); margin: 0 0 2rem; }
 
@@ -236,3 +241,11 @@ textarea.nk-prose-edit {
 .ansi-bg-13 { background: #c77dda; }
 .ansi-bg-14 { background: #4fd0d0; }
 .ansi-bg-15 { background: #f2f4f8; }
+
+/* `editable: false` (§2.3): says why the editing affordances are absent, rather
+   than leaving a reader to wonder where they went. */
+.nk-readonly { color: var(--nk-muted); font-size: 0.9rem; border-top: 1px solid var(--nk-border); padding-top: 1rem; }
+
+/* `local-files: true` declared but not granted (§2.4): explains a missing image
+   rather than leaving a reader to guess. */
+.nk-notice { color: var(--nk-muted); font-size: 0.9rem; border-left: 3px solid var(--nk-border); padding: 0.5rem 0 0.5rem 0.75rem; margin: 0 0 1.5rem; }

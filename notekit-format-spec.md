@@ -65,6 +65,9 @@ Reserved keys (the complete set):
 | `notekit` | yes | Format version. Integer. This spec defines `1`. |
 | `title` | no | Notebook title. Tools may display it; absence is not an error. |
 | `notekit-tool` | no | Advisory: the tool the notebook was written for (§2.1). Reserved so tools agree on its spelling; it never decides what runs. |
+| `width` | no | Presentation hint (§2.2). `full` requests the full window width; absent or any other value means the default reading column. |
+| `editable` | no | Authoring hint (§2.3). `false` asks a reader not to offer editing. Absent or any other value means editable. Never gates running. |
+| `local-files` | no | Declaration (§2.4): the notebook displays files from its own directory. Advisory — it requests, and grants nothing. |
 
 All other keys are **passthrough**: preserved byte-for-byte on round-trip, exposed
 to the runtime uninterpreted. Tool-specific keys should be namespaced by convention
@@ -146,6 +149,104 @@ and derivation becomes genuinely insufficient. `notekit-tool` does not rescue th
 case, being advisory by construction. Should a *deciding* declaration become necessary,
 declare the **language**, not the application: a language is checkable against the
 cells rather than competing with them, and it does not name a binary.
+
+### 2.2 `width` is a hint, and reserved rather than namespaced
+
+`width: full` asks the reader to use the whole window rather than a reading column.
+It suits a notebook whose results are wide — tables, long paths, log lines — and it
+is the only presentation key the format defines.
+
+It is **reserved** rather than left to a namespaced tool key, which needs
+justifying given §2's preference for the latter. A namespaced key means the same
+notebook renders differently depending on which tool opened it: `clinote-width`
+would be invisible to sqlnote, so a wide notebook would be wide only some of the
+time. Presentation belongs to the notebook, not to the application that happens to
+be reading it, and one spelling is what makes that true.
+
+It is a **hint, and grants nothing.** A tool may ignore it — a renderer with no
+concept of width is still conforming — and honouring it can never do more than
+choose a layout. That is what makes it safe to read from the file itself, and it
+is the distinction to preserve if further presentation keys are ever added: a key
+that could grant a capability does not belong in front matter, because a notebook
+you did not write would then be granting it.
+
+Unrecognised values are not an error. `full` is the only value this spec defines;
+anything else means the default, so a later spec can add values without older
+tools failing on them.
+
+### 2.3 `editable: false` withholds editing, never running
+
+`editable: false` asks a reader not to offer editing: no changing a cell's source,
+no adding, deleting or reordering cells, no editing prose. It is what a notebook
+written **for** someone rather than **by** them wants — a teaching exercise, or a
+vetted runbook whose steps were reviewed and should be run as written.
+
+**It must never gate running.** A notebook nobody can run is not a restricted
+notebook, it is a document; the whole point of handing one out is that the reader
+executes it. Running therefore still writes results, and a reader of an
+`editable: false` notebook still ends up with a modified file. What is withheld is
+changing the *source*, not producing output from it.
+
+Default editable. A notebook that says nothing is a notebook someone is writing,
+which is the common case; opting out is the deliberate act.
+
+**A guard rail, not a permission.** Anyone can edit the file in a text editor, and
+should be able to — it is their copy. This key prevents the accidental edit and
+signals the author's intent; it does not defend against a reader who means it. A
+tool may ignore it entirely and still conform.
+
+That is also why it is safe in front matter under §2.2's rule: honouring it only
+ever *withholds* an affordance. A notebook that set `editable: true` — the default
+anyway — would gain nothing it did not already have, so a notebook you did not
+write cannot use this key to acquire anything.
+
+Only `false` disables editing. Any other value, and absence, mean editable, on the
+same reasoning as §2.2.
+
+### 2.4 `local-files` declares a need and grants nothing
+
+A notebook that shows a figure it generated refers to it the ordinary way:
+
+```markdown
+![jacket loop](jacket-loop.svg)
+```
+
+That is prose, not a result (§8), and the file sits beside the notebook rather than
+in the sidecar directory. For the image to appear, a reader has to serve files from
+the notebook's own directory — a wider thing to do than serving `<stem>.assets/`,
+because the notebook's directory is wherever the user happens to keep it, which may
+be a home directory or a repository root.
+
+`local-files: true` says the notebook expects this. **It is a request, and a reader
+must not treat it as permission.**
+
+The rule §2.2 gives for presentation keys is why. Reading `width` from a notebook is
+safe because honouring it can only choose a layout; reading a *capability* from a
+notebook is not safe, because the notebook is exactly what an untrusted party
+controls. A file that could authorise reading its neighbours would be authorising
+itself.
+
+So the grant belongs outside the file — a command-line flag, a configuration the
+user owns, a prompt. What the key buys is that a reader can *explain* a missing
+image ("this notebook displays local files; re-run with …") instead of leaving a
+broken image and no reason. That is the same division as `notekit-tool` (§2.1):
+the notebook says what it is for, the runtime decides what happens.
+
+**Normative rules**
+
+- A conforming tool must not enable local-file serving on the strength of this key
+  alone.
+- A tool that does not serve local files at all is conforming; the key is then
+  informational, and saying so in the UI is encouraged but not required.
+- When serving is enabled, it must be confined to the notebook's own directory.
+  Paths that escape it — lexically, percent-encoded, or through a symbolic link —
+  must be refused, as must dot-prefixed path components, which is what keeps
+  `.git/` and `.env` out of reach when a notebook sits in a repository root.
+- Served files must be sent with headers that stop the browser executing them:
+  an image format is a document format, and SVG in particular can carry script.
+
+Absence means no such declaration. Only `true` declares; any other value, and
+absence, mean the notebook makes no claim, on the same reasoning as §2.2.
 
 ## 3. Document structure
 

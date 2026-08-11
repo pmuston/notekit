@@ -1451,3 +1451,396 @@ func TestFingerprintAbsentIsAllowed(t *testing.T) {
 		t.Errorf("no fingerprint = %d, want it allowed through: %s", rec.Code, rec.Body.String())
 	}
 }
+
+// --- width (§2.2) ---------------------------------------------------------------
+
+// serveSrc opens a notebook with the echo executor and returns the rendered page.
+func servePage(t *testing.T, src string, opts ...Option) string {
+	t.Helper()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "w.md")
+	if err := os.WriteFile(path, []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	sch := run.New()
+	t.Cleanup(func() { _ = sch.Shutdown(context.Background()) })
+	if err := sch.Open(context.Background(), path, echoexec.New()); err != nil {
+		t.Fatal(err)
+	}
+	s, err := New(sch, path, opts...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rec := httptest.NewRecorder()
+	s.Echo().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/", nil))
+	return rec.Body.String()
+}
+
+const widthCell = "\n## A\n\n```echo\nx\n```\n"
+
+func TestWidthFullWidensThePage(t *testing.T) {
+	got := servePage(t, "---\nnotekit: 1\nwidth: full\n---\n"+widthCell)
+	if !strings.Contains(got, `<main class="nk-wide">`) {
+		t.Errorf("width: full should widen the page:\n%s", got)
+	}
+}
+
+func TestWidthDefaultsToAReadingColumn(t *testing.T) {
+	got := servePage(t, "---\nnotekit: 1\n---\n"+widthCell)
+	if strings.Contains(got, "nk-wide") {
+		t.Errorf("no width key should mean the default column:\n%s", got)
+	}
+}
+
+// §2.2: unrecognised values mean the default, so a later spec can add values
+// without older tools failing on them.
+func TestUnknownWidthMeansDefault(t *testing.T) {
+	for _, v := range []string{"wide", "FULL", "120", ""} {
+		got := servePage(t, "---\nnotekit: 1\nwidth: "+v+"\n---\n"+widthCell)
+		if strings.Contains(got, "nk-wide") {
+			t.Errorf("width: %q should mean the default column", v)
+		}
+	}
+}
+
+// The option overrides the notebook, the same way WithTitle does.
+func TestWithWidthOverridesTheNotebook(t *testing.T) {
+	got := servePage(t, "---\nnotekit: 1\n---\n"+widthCell, WithWidth("full"))
+	if !strings.Contains(got, `<main class="nk-wide">`) {
+		t.Errorf("WithWidth(full) should widen a notebook that asked for nothing:\n%s", got)
+	}
+
+	got = servePage(t, "---\nnotekit: 1\nwidth: full\n---\n"+widthCell, WithWidth("column"))
+	if strings.Contains(got, "nk-wide") {
+		t.Errorf("WithWidth should be able to override width: full:\n%s", got)
+	}
+}
+
+// --- editable (§2.3) ------------------------------------------------------------
+
+const editableCell = "\n## A\n\n```echo\nx\n```\n"
+
+// openNotebook serves src and returns the Echo instance, for tests that need to
+// make requests other than the page load.
+func openNotebook(t *testing.T, src string, opts ...Option) (*echo.Echo, string) {
+	t.Helper()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "e.md")
+	if err := os.WriteFile(path, []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	sch := run.New()
+	t.Cleanup(func() { _ = sch.Shutdown(context.Background()) })
+	if err := sch.Open(context.Background(), path, echoexec.New()); err != nil {
+		t.Fatal(err)
+	}
+	s, err := New(sch, path, opts...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return s.Echo(), path
+}
+
+func TestEditableFalseHidesTheAffordances(t *testing.T) {
+	got := servePage(t, "---\nnotekit: 1\neditable: false\n---\n"+editableCell)
+	for _, unwanted := range []string{"move-up", "move-down", "hx-delete", "?edit=1", "addcell"} {
+		if strings.Contains(got, unwanted) {
+			t.Errorf("editable: false should not offer %q:\n%s", unwanted, got)
+		}
+	}
+	if !strings.Contains(got, "nk-readonly") {
+		t.Errorf("the page should say why editing is absent:\n%s", got)
+	}
+}
+
+func TestEditableDefaultsToEditable(t *testing.T) {
+	got := servePage(t, "---\nnotekit: 1\n---\n"+editableCell)
+	if !strings.Contains(got, "?edit=1") {
+		t.Errorf("a notebook that says nothing should be editable:\n%s", got)
+	}
+}
+
+// §2.3: only `false` disables editing, on the same reasoning as §2.2.
+func TestUnknownEditableValueMeansEditable(t *testing.T) {
+	for _, v := range []string{"true", "FALSE", "no", ""} {
+		got := servePage(t, "---\nnotekit: 1\neditable: "+v+"\n---\n"+editableCell)
+		if !strings.Contains(got, "?edit=1") {
+			t.Errorf("editable: %q should still be editable", v)
+		}
+	}
+}
+
+// The routes are the control; hiding a button is not. A stale tab or a direct
+// request must be refused.
+func TestEditableFalseRefusesMutatingRoutes(t *testing.T) {
+	e, _ := openNotebook(t, "---\nnotekit: 1\neditable: false\n---\n"+editableCell)
+
+	for _, tc := range []struct{ method, path string }{
+		{http.MethodPut, "/cells/0/source"},
+		{http.MethodPost, "/cells/add"},
+		{http.MethodDelete, "/cells/0"},
+		{http.MethodPost, "/cells/0/move-up"},
+		{http.MethodPost, "/cells/0/move-down"},
+		{http.MethodPut, "/prose/0-before"},
+	} {
+		rec := httptest.NewRecorder()
+		e.ServeHTTP(rec, httptest.NewRequest(tc.method, tc.path, nil))
+		if rec.Code != http.StatusForbidden {
+			t.Errorf("%s %s = %d, want 403", tc.method, tc.path, rec.Code)
+		}
+	}
+}
+
+// The point of a restricted notebook is that it still runs (§2.3).
+func TestEditableFalseStillRuns(t *testing.T) {
+	e, path := openNotebook(t, "---\nnotekit: 1\neditable: false\n---\n"+editableCell)
+
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/cells/0/run", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("running must not be gated by editable: got %d, %s", rec.Code, rec.Body.String())
+	}
+
+	// And the result reaches the file: a restricted notebook is still written to.
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		if b, _ := os.ReadFile(path); strings.Contains(string(b), "```output") {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Error("a run in an editable: false notebook never wrote its result")
+}
+
+// WithEditing overrides the notebook, the same way WithTitle and WithWidth do.
+func TestWithEditingOverridesTheNotebook(t *testing.T) {
+	got := servePage(t, "---\nnotekit: 1\n---\n"+editableCell, WithEditing(false))
+	if strings.Contains(got, "?edit=1") {
+		t.Errorf("WithEditing(false) should withhold editing:\n%s", got)
+	}
+
+	got = servePage(t, "---\nnotekit: 1\neditable: false\n---\n"+editableCell, WithEditing(true))
+	if !strings.Contains(got, "?edit=1") {
+		t.Errorf("WithEditing(true) should override editable: false:\n%s", got)
+	}
+}
+
+// --- local files (§2.4) ---------------------------------------------------------
+
+const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><rect/></svg>`
+
+// openWithFile serves a notebook and writes name beside it.
+func openWithFile(t *testing.T, name, content string, opts ...Option) (*echo.Echo, string) {
+	t.Helper()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "n.md")
+	src := "---\nnotekit: 1\nlocal-files: true\n---\n\n![x](" + name + ")\n\n## A\n\n```echo\nx\n```\n"
+	if err := os.WriteFile(path, []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if name != "" {
+		full := filepath.Join(dir, name)
+		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(full, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	sch := run.New()
+	t.Cleanup(func() { _ = sch.Shutdown(context.Background()) })
+	if err := sch.Open(context.Background(), path, echoexec.New()); err != nil {
+		t.Fatal(err)
+	}
+	s, err := New(sch, path, opts...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return s.Echo(), dir
+}
+
+func TestLocalFilesServedWhenGranted(t *testing.T) {
+	e, _ := openWithFile(t, "chart.svg", svg, WithLocalFiles(true))
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/chart.svg", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), "<rect") {
+		t.Errorf("body not served: %q", rec.Body.String())
+	}
+	// SVG can carry script; it must be inert even on direct navigation (§2.4).
+	if got := rec.Header().Get("Content-Security-Policy"); got != "sandbox" {
+		t.Errorf("Content-Security-Policy = %q, want sandbox", got)
+	}
+	if got := rec.Header().Get("X-Content-Type-Options"); got != "nosniff" {
+		t.Errorf("X-Content-Type-Options = %q, want nosniff", got)
+	}
+}
+
+func TestLocalFilesInSubdirectory(t *testing.T) {
+	e, _ := openWithFile(t, "img/chart.svg", svg, WithLocalFiles(true))
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/img/chart.svg", nil))
+	if rec.Code != http.StatusOK {
+		t.Errorf("status = %d, want 200", rec.Code)
+	}
+}
+
+// The declaration grants nothing: without the tool's grant there is no route.
+func TestNotebookCannotGrantItself(t *testing.T) {
+	e, _ := openWithFile(t, "chart.svg", svg) // local-files: true, no WithLocalFiles
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/chart.svg", nil))
+	if rec.Code == http.StatusOK {
+		t.Fatal("a notebook must not be able to authorise serving its own directory")
+	}
+
+	// And the page explains the missing image rather than leaving it a mystery.
+	page := httptest.NewRecorder()
+	e.ServeHTTP(page, httptest.NewRequest(http.MethodGet, "/", nil))
+	if !strings.Contains(page.Body.String(), "nk-notice") {
+		t.Errorf("the page should explain that local files are not enabled:\n%s", page.Body.String())
+	}
+}
+
+// Containment is the whole handler: nothing above the notebook's directory.
+func TestLocalFilesContainment(t *testing.T) {
+	e, dir := openWithFile(t, "chart.svg", svg, WithLocalFiles(true))
+
+	secret := filepath.Join(filepath.Dir(dir), "secret.txt")
+	if err := os.WriteFile(secret, []byte("TOPSECRET"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Remove(secret) })
+
+	for _, p := range []string{
+		"/../secret.txt",
+		"/..%2Fsecret.txt",
+		"/%2e%2e%2fsecret.txt",
+		"/foo/../../secret.txt",
+	} {
+		rec := httptest.NewRecorder()
+		e.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, p, nil))
+		if strings.Contains(rec.Body.String(), "TOPSECRET") {
+			t.Errorf("%s escaped the notebook directory", p)
+		}
+		if rec.Code == http.StatusOK {
+			t.Errorf("%s = 200, want a refusal", p)
+		}
+	}
+}
+
+// A symlink inside the directory could otherwise point anywhere, and no amount of
+// URL normalisation would catch it.
+func TestLocalFilesSymlinkEscapeRefused(t *testing.T) {
+	e, dir := openWithFile(t, "chart.svg", svg, WithLocalFiles(true))
+
+	outside := filepath.Join(t.TempDir(), "outside.txt")
+	if err := os.WriteFile(outside, []byte("OUTSIDE"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(dir, "link.txt")); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/link.txt", nil))
+	if strings.Contains(rec.Body.String(), "OUTSIDE") || rec.Code == http.StatusOK {
+		t.Error("a symlink out of the notebook directory must be refused")
+	}
+}
+
+// Keeps .git/ and .env unreachable when a notebook sits in a repository root.
+func TestLocalFilesDotfilesRefused(t *testing.T) {
+	e, dir := openWithFile(t, "chart.svg", svg, WithLocalFiles(true))
+	if err := os.WriteFile(filepath.Join(dir, ".env"), []byte("SECRET=1"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, ".git", "config"), []byte("[core]"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range []string{"/.env", "/.git/config"} {
+		rec := httptest.NewRecorder()
+		e.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, p, nil))
+		if rec.Code == http.StatusOK {
+			t.Errorf("%s was served; dotfiles must be refused", p)
+		}
+	}
+}
+
+func TestLocalFilesDirectoryNotServed(t *testing.T) {
+	e, dir := openWithFile(t, "chart.svg", svg, WithLocalFiles(true))
+	if err := os.MkdirAll(filepath.Join(dir, "sub"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/sub", nil))
+	if rec.Code == http.StatusOK {
+		t.Error("a directory must not be served")
+	}
+}
+
+// A catch-all is the obvious way to shadow the real routes; it must not.
+func TestLocalFilesDoNotShadowRoutes(t *testing.T) {
+	e, dir := openWithFile(t, "chart.svg", svg, WithLocalFiles(true))
+	// Files named after real routes must not be able to hijack them.
+	for _, name := range []string{"cells", "runs", "prose"} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte("HIJACKED"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/", nil))
+	if rec.Code != http.StatusOK || strings.Contains(rec.Body.String(), "HIJACKED") {
+		t.Errorf("the notebook page was shadowed: %d", rec.Code)
+	}
+	run := httptest.NewRecorder()
+	e.ServeHTTP(run, httptest.NewRequest(http.MethodPost, "/cells/0/run", nil))
+	if run.Code != http.StatusOK {
+		t.Errorf("POST /cells/0/run = %d, want 200 — the catch-all shadowed it", run.Code)
+	}
+}
+
+// A tool passes whatever the user typed, so `clinote fig.md` leaves the notebook
+// path relative. Comparing a relative resolved path against an absolute base
+// refuses every file — and every test above uses t.TempDir(), which is absolute,
+// so none of them would notice.
+func TestLocalFilesWithARelativeNotebookPath(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "chart.svg"), []byte(svg), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	src := "---\nnotekit: 1\nlocal-files: true\n---\n\n## A\n\n```echo\nx\n```\n"
+	if err := os.WriteFile(filepath.Join(dir, "n.md"), []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	old, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = os.Chdir(old) }()
+
+	sch := run.New()
+	t.Cleanup(func() { _ = sch.Shutdown(context.Background()) })
+	if err := sch.Open(context.Background(), "n.md", echoexec.New()); err != nil {
+		t.Fatal(err)
+	}
+	// "n.md", exactly as a command line would give it.
+	s, err := New(sch, "n.md", WithLocalFiles(true))
+	if err != nil {
+		t.Fatal(err)
+	}
+	rec := httptest.NewRecorder()
+	s.Echo().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/chart.svg", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("a relative notebook path must still serve its files: got %d", rec.Code)
+	}
+}

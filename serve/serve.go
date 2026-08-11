@@ -37,6 +37,7 @@ import (
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
 
+	"github.com/pmuston/notekit/doc"
 	"github.com/pmuston/notekit/kind"
 	"github.com/pmuston/notekit/run"
 )
@@ -61,6 +62,76 @@ type Server struct {
 	poll     time.Duration
 	tmpl     *template.Template
 	assets   fs.FS
+
+	// width overrides the notebook's `width` key when non-empty, the same way
+	// title does.
+	width string
+
+	// editable overrides the notebook's `editable` key when non-nil. A pointer
+	// rather than a bool because "unset" and "false" are different answers: unset
+	// defers to the notebook, false overrides it.
+	editable *bool
+
+	// localFiles enables serving files from the notebook's own directory (§2.4).
+	// A plain bool, not a pointer, because there is nothing to defer to: the
+	// notebook's `local-files` key requests this and cannot grant it, so the
+	// answer comes from the tool or it is no.
+	localFiles bool
+}
+
+// widthFull is the one value §2.2 defines. Anything else means the default
+// column, so a later spec can add values without this failing on them.
+const widthFull = "full"
+
+// editableFalse is the one value §2.3 defines. Only this disables editing;
+// anything else, and absence, mean editable.
+const editableFalse = "false"
+
+// canEdit reports whether the UI should offer editing: the WithEditing override
+// if one was given, else the notebook's `editable` key (§2.3).
+//
+// Editing means changing the notebook's source — cell bodies, prose, and the set
+// and order of cells. It never covers running: a notebook handed to someone to
+// work through is still meant to be run, and §2.3 makes that non-negotiable.
+func (s *Server) canEdit(nb *doc.Notebook) bool {
+	if s.editable != nil {
+		return *s.editable
+	}
+	return nb.Front()["editable"] != editableFalse
+}
+
+// wide reports whether the page should use the full window width: the WithWidth
+// override if one was given, else the notebook's `width` key (§2.2).
+//
+// The key is read from the notebook rather than required from the tool because
+// presentation belongs to the notebook — a wide notebook should be wide in every
+// tool, not only in one that remembered to wire it up. It is safe to take from the
+// file because honouring it can do no more than choose a layout.
+func (s *Server) wide(nb *doc.Notebook) bool {
+	if s.width != "" {
+		return s.width == widthFull
+	}
+	return nb.Front()["width"] == widthFull
+}
+
+// requireEditable refuses a request that would change the notebook's source when
+// the notebook withholds editing (§2.3).
+//
+// The templates already hide the affordances, but hiding a button is not a
+// control: the routes are reachable directly, and a stale page in an open tab
+// still has its buttons. This is where the answer is actually given.
+func (s *Server) requireEditable(next echo.HandlerFunc) echo.HandlerFunc {
+	return func(c echo.Context) error {
+		nb, _, err := s.notebook()
+		if err != nil {
+			return s.flash(c, http.StatusInternalServerError, err.Error())
+		}
+		if !s.canEdit(nb) {
+			return s.flash(c, http.StatusForbidden,
+				"this notebook is marked editable: false — run cells, but edit it in your editor")
+		}
+		return next(c)
+	}
 }
 
 // Option configures a Server.
@@ -93,6 +164,41 @@ func WithPollInterval(d time.Duration) Option {
 // when a tool wants something other than its executor's own tag.
 func WithLang(lang string) Option {
 	return func(s *Server) { s.lang = lang }
+}
+
+// WithWidth overrides the page width, which otherwise comes from the notebook's
+// `width` front-matter key (§2.2). Pass "full" for the whole window, or anything
+// else for the default reading column.
+//
+// A tool needs this only to force one or the other — leaving it unset lets each
+// notebook choose, which is the intended behaviour.
+func WithWidth(width string) Option {
+	return func(s *Server) { s.width = width }
+}
+
+// WithEditing overrides whether the UI offers editing, which otherwise comes from
+// the notebook's `editable` front-matter key (§2.3).
+//
+// Passing false withholds source, prose and structure editing regardless of what
+// the notebook says — a tool serving notebooks it does not own wants this. It
+// never affects running.
+func WithEditing(editable bool) Option {
+	return func(s *Server) { s.editable = &editable }
+}
+
+// WithLocalFiles serves files from the notebook's own directory, so an ordinary
+// image link in the prose resolves (§2.4).
+//
+// This is the grant, and it deliberately comes from the tool rather than the
+// notebook: a notebook's `local-files: true` requests it and cannot authorise it,
+// because the notebook is the part an untrusted party controls. Expose it as
+// something the user chooses — a flag, a configuration, a prompt.
+//
+// Serving is confined to the notebook's directory: paths escaping it, dot-prefixed
+// components, and directories are all refused, and files are sent with headers
+// that stop the browser executing them.
+func WithLocalFiles(enabled bool) Option {
+	return func(s *Server) { s.localFiles = enabled }
 }
 
 // WithTitle overrides the displayed title, which otherwise comes from the notebook's
@@ -159,23 +265,41 @@ func (s *Server) Register(e *echo.Echo) {
 
 	g.GET("", s.handleNotebook)
 	g.GET("/", s.handleNotebook)
+
+	// Running is never gated by `editable` (§2.3): a notebook handed to someone to
+	// work through is meant to be run.
 	g.POST("/cells/:index/run", s.handleRun)
 	g.POST("/cells/run-all", s.handleRunAll)
 	g.GET("/runs/:id", s.handleRunStatus)
 	g.POST("/runs/:id/cancel", s.handleCancel)
+
 	g.GET("/cells/:index/source", s.handleSourceGet)
-	g.PUT("/cells/:index/source", s.handleSourcePut)
-	g.POST("/cells/add", s.handleAddCell)
-	g.DELETE("/cells/:index", s.handleDeleteCell)
-	g.POST("/cells/:index/move-up", s.handleMoveUp)
-	g.POST("/cells/:index/move-down", s.handleMoveDown)
 	g.GET("/prose/:ref", s.handleProseGet)
-	g.PUT("/prose/:ref", s.handleProsePut)
 	g.GET("/sidecar/:name", s.handleSidecar)
+
+	// Everything that changes the notebook's source. The guard is per route rather
+	// than on the group so this list is the whole answer to "what does
+	// `editable: false` withhold" — and so running cannot be swept in by editing
+	// the group.
+	g.PUT("/cells/:index/source", s.handleSourcePut, s.requireEditable)
+	g.POST("/cells/add", s.handleAddCell, s.requireEditable)
+	g.DELETE("/cells/:index", s.handleDeleteCell, s.requireEditable)
+	g.POST("/cells/:index/move-up", s.handleMoveUp, s.requireEditable)
+	g.POST("/cells/:index/move-down", s.handleMoveDown, s.requireEditable)
+	g.PUT("/prose/:ref", s.handleProsePut, s.requireEditable)
 
 	// Embedded assets, so a tool is a single static binary.
 	g.GET("/assets/*", echo.WrapHandler(http.StripPrefix(s.base+"/assets/",
 		http.FileServer(http.FS(s.assets)))))
+
+	// Files beside the notebook, only when the tool granted it (§2.4). Registered
+	// last and as a catch-all because an image link in prose is relative — the
+	// browser asks for "{base}/chart.svg" — and Echo prefers the static and
+	// parameterised routes above to this one. When the grant is absent the route
+	// does not exist at all.
+	if s.localFiles {
+		g.GET("/*", s.handleLocalFile)
+	}
 }
 
 // Echo returns a ready Echo instance with the server's routes and sensible middleware.

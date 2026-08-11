@@ -12,7 +12,7 @@
       <span class="nk-dirty" data-dirty="false">unsaved changes</span>
     </div>
   </form>
-  {{- else}}
+  {{- else if .CanEdit}}
   <div class="nk-prose-rendered"
        role="button" tabindex="0"
        aria-label="edit prose"
@@ -20,6 +20,10 @@
        hx-trigger="click, keyup[key=='Enter'], keyup[key==' ']"
        hx-target="#prose-{{.Ref}}" hx-swap="outerHTML"
        title="click or press Enter to edit">{{if .Text}}{{.Text}}{{else}}<span class="nk-prose-empty">(no prose — click to add)</span>{{end}}</div>
+  {{- else}}
+  {{- /* editable: false (§2.3): rendered, but not an invitation to edit. An empty
+         region is omitted entirely — its only purpose was "click to add". */}}
+  {{- if .Text}}<div class="nk-prose-rendered">{{.Text}}</div>{{end}}
   {{- end}}
 </div>
 {{- end}}
