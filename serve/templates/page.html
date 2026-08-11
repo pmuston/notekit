@@ -9,7 +9,7 @@
 <script src="{{.Base}}/assets/notekit.js" defer></script>
 </head>
 <body data-nk-doc="{{.Fingerprint}}">
-<main>
+<main{{if .Wide}} class="nk-wide"{{end}}>
   <h1 class="nk-title">{{.Title}}</h1>
   <p class="nk-path">{{.Path}}</p>
 

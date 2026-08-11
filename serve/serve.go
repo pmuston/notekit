@@ -37,6 +37,7 @@ import (
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
 
+	"github.com/pmuston/notekit/doc"
 	"github.com/pmuston/notekit/kind"
 	"github.com/pmuston/notekit/run"
 )
@@ -61,6 +62,28 @@ type Server struct {
 	poll     time.Duration
 	tmpl     *template.Template
 	assets   fs.FS
+
+	// width overrides the notebook's `width` key when non-empty, the same way
+	// title does.
+	width string
+}
+
+// widthFull is the one value §2.2 defines. Anything else means the default
+// column, so a later spec can add values without this failing on them.
+const widthFull = "full"
+
+// wide reports whether the page should use the full window width: the WithWidth
+// override if one was given, else the notebook's `width` key (§2.2).
+//
+// The key is read from the notebook rather than required from the tool because
+// presentation belongs to the notebook — a wide notebook should be wide in every
+// tool, not only in one that remembered to wire it up. It is safe to take from the
+// file because honouring it can do no more than choose a layout.
+func (s *Server) wide(nb *doc.Notebook) bool {
+	if s.width != "" {
+		return s.width == widthFull
+	}
+	return nb.Front()["width"] == widthFull
 }
 
 // Option configures a Server.
@@ -93,6 +116,16 @@ func WithPollInterval(d time.Duration) Option {
 // when a tool wants something other than its executor's own tag.
 func WithLang(lang string) Option {
 	return func(s *Server) { s.lang = lang }
+}
+
+// WithWidth overrides the page width, which otherwise comes from the notebook's
+// `width` front-matter key (§2.2). Pass "full" for the whole window, or anything
+// else for the default reading column.
+//
+// A tool needs this only to force one or the other — leaving it unset lets each
+// notebook choose, which is the intended behaviour.
+func WithWidth(width string) Option {
+	return func(s *Server) { s.width = width }
 }
 
 // WithTitle overrides the displayed title, which otherwise comes from the notebook's

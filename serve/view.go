@@ -26,6 +26,12 @@ type pageView struct {
 	// only a header because a full page load is not an HTMX request, so the client has no
 	// other way to learn its starting value.
 	Fingerprint string
+
+	// Wide requests the full window width instead of a reading column, from the
+	// notebook's `width: full` key (§2.2). A presentation hint and nothing more:
+	// it picks a CSS class and can grant nothing, which is what makes it safe to
+	// read from the notebook itself.
+	Wide bool
 }
 
 // cellView is one cell's template data.
@@ -129,6 +135,7 @@ func (s *Server) buildPage() (pageView, error) {
 		Path:        s.path,
 		Preamble:    s.proseViewFor(src, "preamble", nb.Preamble(), false),
 		Fingerprint: fingerprint(nb, src),
+		Wide:        s.wide(nb),
 	}
 	cells := nb.Cells()
 	for i, c := range cells {

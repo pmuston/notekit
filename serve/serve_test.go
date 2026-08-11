@@ -1451,3 +1451,67 @@ func TestFingerprintAbsentIsAllowed(t *testing.T) {
 		t.Errorf("no fingerprint = %d, want it allowed through: %s", rec.Code, rec.Body.String())
 	}
 }
+
+// --- width (§2.2) ---------------------------------------------------------------
+
+// serveSrc opens a notebook with the echo executor and returns the rendered page.
+func servePage(t *testing.T, src string, opts ...Option) string {
+	t.Helper()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "w.md")
+	if err := os.WriteFile(path, []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	sch := run.New()
+	t.Cleanup(func() { _ = sch.Shutdown(context.Background()) })
+	if err := sch.Open(context.Background(), path, echoexec.New()); err != nil {
+		t.Fatal(err)
+	}
+	s, err := New(sch, path, opts...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rec := httptest.NewRecorder()
+	s.Echo().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/", nil))
+	return rec.Body.String()
+}
+
+const widthCell = "\n## A\n\n```echo\nx\n```\n"
+
+func TestWidthFullWidensThePage(t *testing.T) {
+	got := servePage(t, "---\nnotekit: 1\nwidth: full\n---\n"+widthCell)
+	if !strings.Contains(got, `<main class="nk-wide">`) {
+		t.Errorf("width: full should widen the page:\n%s", got)
+	}
+}
+
+func TestWidthDefaultsToAReadingColumn(t *testing.T) {
+	got := servePage(t, "---\nnotekit: 1\n---\n"+widthCell)
+	if strings.Contains(got, "nk-wide") {
+		t.Errorf("no width key should mean the default column:\n%s", got)
+	}
+}
+
+// §2.2: unrecognised values mean the default, so a later spec can add values
+// without older tools failing on them.
+func TestUnknownWidthMeansDefault(t *testing.T) {
+	for _, v := range []string{"wide", "FULL", "120", ""} {
+		got := servePage(t, "---\nnotekit: 1\nwidth: "+v+"\n---\n"+widthCell)
+		if strings.Contains(got, "nk-wide") {
+			t.Errorf("width: %q should mean the default column", v)
+		}
+	}
+}
+
+// The option overrides the notebook, the same way WithTitle does.
+func TestWithWidthOverridesTheNotebook(t *testing.T) {
+	got := servePage(t, "---\nnotekit: 1\n---\n"+widthCell, WithWidth("full"))
+	if !strings.Contains(got, `<main class="nk-wide">`) {
+		t.Errorf("WithWidth(full) should widen a notebook that asked for nothing:\n%s", got)
+	}
+
+	got = servePage(t, "---\nnotekit: 1\nwidth: full\n---\n"+widthCell, WithWidth("column"))
+	if strings.Contains(got, "nk-wide") {
+		t.Errorf("WithWidth should be able to override width: full:\n%s", got)
+	}
+}

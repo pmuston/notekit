@@ -65,6 +65,7 @@ Reserved keys (the complete set):
 | `notekit` | yes | Format version. Integer. This spec defines `1`. |
 | `title` | no | Notebook title. Tools may display it; absence is not an error. |
 | `notekit-tool` | no | Advisory: the tool the notebook was written for (§2.1). Reserved so tools agree on its spelling; it never decides what runs. |
+| `width` | no | Presentation hint (§2.2). `full` requests the full window width; absent or any other value means the default reading column. |
 
 All other keys are **passthrough**: preserved byte-for-byte on round-trip, exposed
 to the runtime uninterpreted. Tool-specific keys should be namespaced by convention
@@ -146,6 +147,30 @@ and derivation becomes genuinely insufficient. `notekit-tool` does not rescue th
 case, being advisory by construction. Should a *deciding* declaration become necessary,
 declare the **language**, not the application: a language is checkable against the
 cells rather than competing with them, and it does not name a binary.
+
+### 2.2 `width` is a hint, and reserved rather than namespaced
+
+`width: full` asks the reader to use the whole window rather than a reading column.
+It suits a notebook whose results are wide — tables, long paths, log lines — and it
+is the only presentation key the format defines.
+
+It is **reserved** rather than left to a namespaced tool key, which needs
+justifying given §2's preference for the latter. A namespaced key means the same
+notebook renders differently depending on which tool opened it: `clinote-width`
+would be invisible to sqlnote, so a wide notebook would be wide only some of the
+time. Presentation belongs to the notebook, not to the application that happens to
+be reading it, and one spelling is what makes that true.
+
+It is a **hint, and grants nothing.** A tool may ignore it — a renderer with no
+concept of width is still conforming — and honouring it can never do more than
+choose a layout. That is what makes it safe to read from the file itself, and it
+is the distinction to preserve if further presentation keys are ever added: a key
+that could grant a capability does not belong in front matter, because a notebook
+you did not write would then be granting it.
+
+Unrecognised values are not an error. `full` is the only value this spec defines;
+anything else means the default, so a later spec can add values without older
+tools failing on them.
 
 ## 3. Document structure
 
