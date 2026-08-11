@@ -271,3 +271,16 @@ func TestDurableValidate(t *testing.T) {
 		})
 	}
 }
+
+func TestRegistryFormatsOmitsTheEmptyOne(t *testing.T) {
+	got := NewRegistry().Formats()
+	want := []string{CSV, JSONL, Text}
+	if len(got) != len(want) {
+		t.Fatalf("Formats() = %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("Formats() = %v, want %v (sorted)", got, want)
+		}
+	}
+}

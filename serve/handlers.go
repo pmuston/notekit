@@ -363,6 +363,61 @@ func (s *Server) handleSourcePut(c echo.Context) error {
 	return s.html(c, http.StatusOK, "cell", s.buildCell(src2, index, nb2.Cells()[index], false, s.canEdit(nb2)))
 }
 
+// handleFormatPut changes how a cell renders, and relabels the result it already has.
+//
+// The value is checked against the kind registry rather than a list written here, so a
+// tool that registered its own kind can pick it and nothing else can reach a notebook by
+// being asked for: the field comes from a form, and the registry is the only thing that
+// knows what actually renders.
+//
+// See doc.Cell.SetFormat for why the existing result moves with the cell. In short, this
+// is almost always used on output already on the page, which is the whole reason not to
+// make someone re-run to relabel it.
+func (s *Server) handleFormatPut(c echo.Context) error {
+	nb, _, err := s.notebook()
+	if err != nil {
+		return s.flash(c, http.StatusInternalServerError, err.Error())
+	}
+	cells := nb.Cells()
+	index, err := cellIndex(c, cells)
+	if err != nil {
+		return s.flash(c, http.StatusBadRequest, err.Error())
+	}
+	if err := s.checkFingerprint(c); err != nil {
+		return err
+	}
+
+	format := c.FormValue("format")
+	if _, ok := s.registry.LookupFormat(format); !ok {
+		return s.flash(c, http.StatusBadRequest, fmt.Sprintf("nothing here renders %q", format))
+	}
+
+	edits, err := cells[index].SetFormat(format)
+	if err != nil {
+		return s.flash(c, http.StatusConflict, err.Error())
+	}
+	out, err := nb.Apply(edits...)
+	if err != nil {
+		return s.flash(c, http.StatusConflict, err.Error())
+	}
+	// Editing an info string should be incapable of changing the cell structure, so this
+	// guards against this package being wrong rather than against the user.
+	after, err := doc.Parse(out)
+	if err != nil || len(after.Cells()) != len(cells) {
+		return s.flash(c, http.StatusConflict,
+			"that change would alter the notebook's structure, so it was not saved")
+	}
+	if err := s.saveAndTell(c, out); err != nil {
+		return s.flash(c, http.StatusInternalServerError, err.Error())
+	}
+
+	nb2, src2, err := s.notebook()
+	if err != nil {
+		return s.flash(c, http.StatusInternalServerError, err.Error())
+	}
+	return s.html(c, http.StatusOK, "cell", s.buildCell(src2, index, nb2.Cells()[index], false, s.canEdit(nb2)))
+}
+
 // handleAddCell inserts a new cell (§10 f).
 //
 // The new cell is a heading plus a source fence and nothing else: a tool that also

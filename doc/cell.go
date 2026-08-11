@@ -32,6 +32,12 @@ type Result struct {
 	Form ResultForm
 	Span Span
 
+	// InfoSpan is the info string within the opening fence line, for the fence
+	// forms only. A sidecar has none: its attributes live in a provenance comment
+	// and the braces Meta was parsed from are synthetic, so there is nothing in
+	// the file at that shape to address.
+	InfoSpan Span
+
 	// Meta is the parsed info string for fence forms, or the parsed attribute
 	// list for a sidecar provenance comment. Nil when that text was malformed;
 	// see MetaErr.
@@ -196,7 +202,7 @@ func collectResults(src []byte, rest []block, fenceEnd int) ([]Result, Span) {
 		var r Result
 		switch {
 		case b.kind == blkFence && (b.tag == "output" || b.tag == "error"):
-			r = Result{Span: b.span}
+			r = Result{Span: b.span, InfoSpan: b.infoSpan}
 			if b.tag == "output" {
 				r.Form = ResultOutput
 			} else {

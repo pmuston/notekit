@@ -1026,3 +1026,83 @@ func TestSetSourceOnATildeFenceWithNoRecordedChar(t *testing.T) {
 		t.Errorf("edit = %q, want a backtick fence by default", edit.Text)
 	}
 }
+
+func TestSetFormatMovesTheResultWithTheCell(t *testing.T) {
+	src := "---\nnotekit: 1\n---\n\n## Cell\n\n```sh\ndu -h\n```\n\n" +
+		"```output {run=\"2026-01-01T00:00:00Z\", tool=\"t/1\"}\na,b\n```\n"
+	nb, err := Parse([]byte(src))
+	if err != nil {
+		t.Fatal(err)
+	}
+	edits, err := nb.Cells()[0].SetFormat("csv")
+	if err != nil {
+		t.Fatalf("SetFormat: %v", err)
+	}
+	if len(edits) != 2 {
+		t.Fatalf("got %d edits, want the source fence and its one output", len(edits))
+	}
+	out, err := nb.Apply(edits...)
+	if err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+	want := "---\nnotekit: 1\n---\n\n## Cell\n\n```sh {format=csv}\ndu -h\n```\n\n" +
+		"```output {run=\"2026-01-01T00:00:00Z\", tool=\"t/1\", format=csv}\na,b\n```\n"
+	if string(out) != want {
+		t.Errorf("notebook:\n got %q\nwant %q", out, want)
+	}
+}
+
+func TestSetFormatSkipsErrorsAndSidecars(t *testing.T) {
+	src := "---\nnotekit: 1\n---\n\n## Failed\n\n```sh\nboom\n```\n\n```error {status=1}\nboom\n```\n\n" +
+		"## Charted\n\n```sh\nplot\n```\n\n<!-- notekit: result run=\"2026-01-01T00:00:00Z\" -->\n![](x/plot.svg)\n"
+	nb, err := Parse([]byte(src))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i, c := range nb.Cells() {
+		edits, err := c.SetFormat("csv")
+		if err != nil {
+			t.Fatalf("cell %d: SetFormat: %v", i, err)
+		}
+		// Only the source fence: §7 records a failure, which is not a table, and a
+		// sidecar has no info string to edit.
+		if len(edits) != 1 {
+			t.Errorf("cell %d: got %d edits, want only the source fence", i, len(edits))
+		}
+	}
+}
+
+func TestSetFormatRefusesAMalformedInfoString(t *testing.T) {
+	src := "---\nnotekit: 1\n---\n\n## Cell\n\n```sh {=bad}\nx\n```\n"
+	nb, err := Parse([]byte(src))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := nb.Cells()[0].SetFormat("csv"); err == nil {
+		t.Error("SetFormat repaired a malformed info string instead of refusing")
+	}
+}
+
+func TestSetFormatRefusesANewline(t *testing.T) {
+	src := "---\nnotekit: 1\n---\n\n## Cell\n\n```sh\nx\n```\n"
+	nb, err := Parse([]byte(src))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A newline in an info string would end the fence line and turn the body into prose.
+	if _, err := nb.Cells()[0].SetFormat("csv\n```"); err == nil {
+		t.Error("SetFormat accepted a value that would break out of the fence")
+	}
+}
+
+func TestResultInfoSpanAddressesItsOwnInfoString(t *testing.T) {
+	src := "---\nnotekit: 1\n---\n\n## Cell\n\n```sh\nx\n```\n\n```output {format=csv}\na\n```\n"
+	nb, err := Parse([]byte(src))
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := nb.Cells()[0].Results[0]
+	if got := string(r.InfoSpan.In([]byte(src))); got != "output {format=csv}" {
+		t.Errorf("InfoSpan covers %q", got)
+	}
+}

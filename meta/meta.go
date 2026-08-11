@@ -42,6 +42,12 @@ type Entry struct {
 	Quoted bool
 
 	raw string // exact source text, key through value; empty if constructed
+
+	// start and end bound raw within the info string, so one entry can be
+	// replaced without disturbing another byte ([Info.Set]). Both are zero for a
+	// constructed Entry, which is why Set works from Info's own slice rather than
+	// from an Entry handed back by [Info.Get].
+	start, end int
 }
 
 // Raw returns the entry's exact source text, or "" if the Entry was constructed
@@ -206,6 +212,7 @@ func Parse(s string) (*Info, error) {
 			p, end = next, next
 		}
 		e.raw = s[entryStart:end]
+		e.start, e.end = entryStart, end
 		i.entries = append(i.entries, e)
 		i.lastEntryEnd = end
 

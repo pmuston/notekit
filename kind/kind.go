@@ -223,6 +223,25 @@ func (r *Registry) LookupFormat(format string) (Kind, bool) {
 	return k, ok
 }
 
+// Formats returns every durable `format` value the registry can render, sorted.
+//
+// The empty value is omitted: it and "text" name the same kind (§6), and a list
+// offered to a user wants the one that can be written down. A tool registering its
+// own kind appears here without telling anyone, which is the point — the
+// alternative is a UI with a hard-coded list that drifts from what actually
+// renders.
+func (r *Registry) Formats() []string {
+	out := make([]string, 0, len(r.byFormat))
+	for f := range r.byFormat {
+		if f == "" {
+			continue
+		}
+		out = append(out, f)
+	}
+	sort.Strings(out)
+	return out
+}
+
 // Lookup returns the named kind.
 func (r *Registry) Lookup(name string) (Kind, bool) {
 	k, ok := r.kinds[name]

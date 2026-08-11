@@ -115,8 +115,13 @@ func TestParseValid(t *testing.T) {
 				t.Fatalf("Entries() = %#v, want %#v", got.Entries(), tt.entries)
 			}
 			for i, want := range tt.entries {
-				if got.Entries()[i] != want {
-					t.Errorf("Entries()[%d] = %#v, want %#v", i, got.Entries()[i], want)
+				// Field by field rather than whole-struct: an Entry also carries the
+				// bounds of its raw text, which this table is not about and which
+				// TestSetReplacesOneEntryInPlace covers through behaviour instead.
+				g := got.Entries()[i]
+				if g.Key != want.Key || g.Value != want.Value ||
+					g.Flag != want.Flag || g.Quoted != want.Quoted || g.raw != want.raw {
+					t.Errorf("Entries()[%d] = %#v, want %#v", i, g, want)
 				}
 			}
 			// Round-trip identity: the original bytes come back untouched (§10).
@@ -434,5 +439,78 @@ func TestTag(t *testing.T) {
 		if got := Tag(tt.in); got != tt.want {
 			t.Errorf("Tag(%q) = %q, want %q", tt.in, got, tt.want)
 		}
+	}
+}
+
+func TestSetReplacesOneEntryInPlace(t *testing.T) {
+	cases := []struct {
+		name, in, key, value, want string
+	}{
+		{"append when absent", "sh", "format", "csv", "sh {format=csv}"},
+		{"append to a block", "sh {id=aaaa2345}", "format", "csv", "sh {id=aaaa2345, format=csv}"},
+		{"replace the first", "sh {format=csv, id=aaaa2345}", "format", "jsonl",
+			"sh {format=jsonl, id=aaaa2345}"},
+		{"replace the last", "sh {id=aaaa2345, format=csv}", "format", "jsonl",
+			"sh {id=aaaa2345, format=jsonl}"},
+		{"replace the middle", "sh {a=1, format=csv, b=2}", "format", "jsonl",
+			"sh {a=1, format=jsonl, b=2}"},
+		// Spacing and quoting elsewhere are somebody's choice, and survive.
+		{"odd spacing kept", "sh {  a = 1 ,format=csv,  b='x' }", "format", "jsonl",
+			"sh {  a = 1 ,format=jsonl,  b='x' }"},
+		{"quoted value replaced", `sh {format="csv"}`, "format", "jsonl", "sh {format=jsonl}"},
+		{"a flag becomes keyed", "sh {truncated}", "truncated", "no", "sh {truncated=no}"},
+		{"value that must be quoted", "sh {a=1}", "a", "x y", `sh {a="x y"}`},
+		{"empty value is written, not removed", "sh {a=1}", "a", "", `sh {a=""}`},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			i, err := Parse(c.in)
+			if err != nil {
+				t.Fatalf("Parse(%q) = %v", c.in, err)
+			}
+			got, err := i.Set(c.key, c.value)
+			if err != nil {
+				t.Fatalf("Set(%q, %q) = %v", c.key, c.value, err)
+			}
+			if got != c.want {
+				t.Errorf("Set(%q, %q) on %q:\n got %q\nwant %q", c.key, c.value, c.in, got, c.want)
+			}
+			// Whatever came out must still parse, and must hold the new value.
+			after, err := Parse(got)
+			if err != nil {
+				t.Fatalf("the result does not parse: %v", err)
+			}
+			if e, ok := after.Get(c.key); !ok || e.Value != c.value {
+				t.Errorf("after Set, %q = %+v, ok=%v", c.key, e, ok)
+			}
+		})
+	}
+}
+
+func TestSetRejectsABadKey(t *testing.T) {
+	i, err := Parse("sh {a=1}")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := i.Set("Bad-KEY", "x"); err == nil {
+		t.Error("Set accepted a key the grammar rejects")
+	}
+}
+
+func TestSetLeavesTheInfoUnchanged(t *testing.T) {
+	i, err := Parse("sh {format=csv}")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := i.Set("format", "jsonl"); err != nil {
+		t.Fatal(err)
+	}
+	// Set returns a new string; the Info it was called on still describes the old
+	// bytes, which is what makes it safe to call twice or to discard the result.
+	if i.String() != "sh {format=csv}" {
+		t.Errorf("Set mutated the Info: %q", i.String())
+	}
+	if e, _ := i.Get("format"); e.Value != "csv" {
+		t.Errorf("Set mutated an entry: %+v", e)
 	}
 }

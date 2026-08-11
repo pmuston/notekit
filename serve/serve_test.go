@@ -1977,3 +1977,133 @@ func TestPageOffersRunBelow(t *testing.T) {
 		t.Errorf("expected a Run below on each of 3 cells, got %d:\n%s", n, got)
 	}
 }
+
+// --- the format picker (§6) ------------------------------------------------
+
+func TestFormatPickerOffersWhatTheRegistryRenders(t *testing.T) {
+	h := newHarness(t, "## Cell\n\n```echo\nx\n```\n")
+
+	page := h.get("/").Body.String()
+	// The options come from the registry, so the core kinds are all there and the
+	// current one — absent, therefore text — is what is selected.
+	for _, want := range []string{
+		`<option value="csv"`, `<option value="jsonl"`, `<option value="text"`,
+		`<option value="text" selected>`,
+	} {
+		if !strings.Contains(page, want) {
+			t.Errorf("page missing %q:\n%s", want, page)
+		}
+	}
+	// The empty format is the same kind as text (§6) and must not be offered as a
+	// second, blank-looking choice. Scoped to the picker's own markup: the add-cell
+	// form has a legitimately empty option of its own ("at the end").
+	picker := page[strings.Index(page, `class="nk-format"`):]
+	picker = picker[:strings.Index(picker, "</select>")]
+	if strings.Contains(picker, `<option value="">`) {
+		t.Errorf("the empty format was offered as an option:\n%s", picker)
+	}
+}
+
+func TestFormatPickerAddsTheKeyToABareFence(t *testing.T) {
+	h := newHarness(t, "## Cell\n\n```echo\nx\n```\n")
+
+	rec := h.do(http.MethodPut, "/cells/0/format", url.Values{"format": {"csv"}})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("PUT = %d: %s", rec.Code, rec.Body.String())
+	}
+	want := front + "## Cell\n\n```echo {format=csv}\nx\n```\n"
+	if got := h.contents(); got != want {
+		t.Errorf("notebook:\n got %q\nwant %q", got, want)
+	}
+}
+
+func TestFormatPickerReplacesInPlaceAndKeepsEverythingElse(t *testing.T) {
+	h := newHarness(t, "## Cell\n\n```echo {format=csv, id=aaaa2345}\nx\n```\n")
+
+	rec := h.do(http.MethodPut, "/cells/0/format", url.Values{"format": {"jsonl"}})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("PUT = %d: %s", rec.Code, rec.Body.String())
+	}
+	// The id keeps its bytes and its position: only the one entry named is rewritten.
+	want := front + "## Cell\n\n```echo {format=jsonl, id=aaaa2345}\nx\n```\n"
+	if got := h.contents(); got != want {
+		t.Errorf("notebook:\n got %q\nwant %q", got, want)
+	}
+}
+
+func TestFormatPickerRelabelsTheResultAlready0nThePage(t *testing.T) {
+	h := newHarness(t, "## Cell\n\n```echo\nx\n```\n\n"+
+		"```output {run=\"2026-01-01T00:00:00Z\", tool=\"t/1\"}\na,b\n1,2\n```\n")
+
+	rec := h.do(http.MethodPut, "/cells/0/format", url.Values{"format": {"csv"}})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("PUT = %d: %s", rec.Code, rec.Body.String())
+	}
+	got := h.contents()
+	// This is the whole point of the feature: the result that is already there is
+	// relabelled, so nobody has to re-run an expensive command to read it as a table.
+	if !strings.Contains(got, `output {run="2026-01-01T00:00:00Z", tool="t/1", format=csv}`) {
+		t.Errorf("the result was not relabelled:\n%s", got)
+	}
+	// Its provenance and its body are untouched — the bytes are what the command
+	// produced either way.
+	if !strings.Contains(got, "a,b\n1,2\n") {
+		t.Errorf("the result body changed:\n%s", got)
+	}
+	if !strings.Contains(h.get("/").Body.String(), "<table") {
+		t.Errorf("the relabelled result did not render as a table")
+	}
+}
+
+func TestFormatPickerLeavesAnErrorResultAlone(t *testing.T) {
+	h := newHarness(t, "## Cell\n\n```echo\nx\n```\n\n```error {status=1}\nboom\n```\n")
+
+	rec := h.do(http.MethodPut, "/cells/0/format", url.Values{"format": {"csv"}})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("PUT = %d: %s", rec.Code, rec.Body.String())
+	}
+	got := h.contents()
+	if !strings.Contains(got, "```error {status=1}\n") {
+		t.Errorf("the error block was rewritten:\n%s", got)
+	}
+	if !strings.Contains(got, "```echo {format=csv}\n") {
+		t.Errorf("the cell was not relabelled:\n%s", got)
+	}
+}
+
+func TestFormatPickerRefusesWhatNothingRenders(t *testing.T) {
+	h := newHarness(t, "## Cell\n\n```echo\nx\n```\n")
+	before := h.contents()
+
+	rec := h.do(http.MethodPut, "/cells/0/format", url.Values{"format": {"yaml"}})
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("PUT = %d, want 400: %s", rec.Code, rec.Body.String())
+	}
+	if h.contents() != before {
+		t.Errorf("the notebook was written despite the refusal:\n%s", h.contents())
+	}
+}
+
+func TestFormatPickerIsWithheldByEditableFalse(t *testing.T) {
+	h := newHarness(t, "## Cell\n\n```echo\nx\n```\n", WithEditing(false))
+	before := h.contents()
+
+	if page := h.get("/").Body.String(); !strings.Contains(page, `<select class="nk-format" name="format"`) ||
+		!strings.Contains(page, "disabled title=\"this notebook is marked editable: false\"") {
+		t.Errorf("the picker should be shown disabled, not hidden:\n%s", page)
+	}
+	rec := h.do(http.MethodPut, "/cells/0/format", url.Values{"format": {"csv"}})
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("PUT = %d, want 403: %s", rec.Code, rec.Body.String())
+	}
+	if h.contents() != before {
+		t.Errorf("the notebook was written despite the refusal:\n%s", h.contents())
+	}
+}
+
+func TestFormatPickerRejectsABadIndex(t *testing.T) {
+	h := newHarness(t, "## Cell\n\n```echo\nx\n```\n")
+	if rec := h.do(http.MethodPut, "/cells/9/format", url.Values{"format": {"csv"}}); rec.Code != http.StatusBadRequest {
+		t.Errorf("PUT = %d, want 400", rec.Code)
+	}
+}

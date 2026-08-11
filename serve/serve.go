@@ -282,6 +282,7 @@ func (s *Server) Register(e *echo.Echo) {
 	// `editable: false` withhold" — and so running cannot be swept in by editing
 	// the group.
 	g.PUT("/cells/:index/source", s.handleSourcePut, s.requireEditable)
+	g.PUT("/cells/:index/format", s.handleFormatPut, s.requireEditable)
 	g.POST("/cells/add", s.handleAddCell, s.requireEditable)
 	g.DELETE("/cells/:index", s.handleDeleteCell, s.requireEditable)
 	g.POST("/cells/:index/move-up", s.handleMoveUp, s.requireEditable)
