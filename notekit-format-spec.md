@@ -66,6 +66,7 @@ Reserved keys (the complete set):
 | `title` | no | Notebook title. Tools may display it; absence is not an error. |
 | `notekit-tool` | no | Advisory: the tool the notebook was written for (§2.1). Reserved so tools agree on its spelling; it never decides what runs. |
 | `width` | no | Presentation hint (§2.2). `full` requests the full window width; absent or any other value means the default reading column. |
+| `editable` | no | Authoring hint (§2.3). `false` asks a reader not to offer editing. Absent or any other value means editable. Never gates running. |
 
 All other keys are **passthrough**: preserved byte-for-byte on round-trip, exposed
 to the runtime uninterpreted. Tool-specific keys should be namespaced by convention
@@ -171,6 +172,35 @@ you did not write would then be granting it.
 Unrecognised values are not an error. `full` is the only value this spec defines;
 anything else means the default, so a later spec can add values without older
 tools failing on them.
+
+### 2.3 `editable: false` withholds editing, never running
+
+`editable: false` asks a reader not to offer editing: no changing a cell's source,
+no adding, deleting or reordering cells, no editing prose. It is what a notebook
+written **for** someone rather than **by** them wants — a teaching exercise, or a
+vetted runbook whose steps were reviewed and should be run as written.
+
+**It must never gate running.** A notebook nobody can run is not a restricted
+notebook, it is a document; the whole point of handing one out is that the reader
+executes it. Running therefore still writes results, and a reader of an
+`editable: false` notebook still ends up with a modified file. What is withheld is
+changing the *source*, not producing output from it.
+
+Default editable. A notebook that says nothing is a notebook someone is writing,
+which is the common case; opting out is the deliberate act.
+
+**A guard rail, not a permission.** Anyone can edit the file in a text editor, and
+should be able to — it is their copy. This key prevents the accidental edit and
+signals the author's intent; it does not defend against a reader who means it. A
+tool may ignore it entirely and still conform.
+
+That is also why it is safe in front matter under §2.2's rule: honouring it only
+ever *withholds* an affordance. A notebook that set `editable: true` — the default
+anyway — would gain nothing it did not already have, so a notebook you did not
+write cannot use this key to acquire anything.
+
+Only `false` disables editing. Any other value, and absence, mean editable, on the
+same reasoning as §2.2.
 
 ## 3. Document structure
 

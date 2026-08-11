@@ -32,6 +32,11 @@ type pageView struct {
 	// it picks a CSS class and can grant nothing, which is what makes it safe to
 	// read from the notebook itself.
 	Wide bool
+
+	// CanEdit is false when the notebook says `editable: false` (§2.3). It hides
+	// the affordances; the routes are gated separately, because hiding a button
+	// is not a control.
+	CanEdit bool
 }
 
 // cellView is one cell's template data.
@@ -54,6 +59,10 @@ type cellView struct {
 
 	// Editing switches the source fence for a textarea.
 	Editing bool
+
+	// CanEdit is false when the notebook withholds editing (§2.3). Running is
+	// never affected.
+	CanEdit bool
 
 	// First and Last disable the move buttons at the ends, where a move is a no-op that
 	// §10 h says must not write the file.
@@ -81,6 +90,7 @@ type proseView struct {
 	Text     string
 	Editable bool
 	Editing  bool
+	CanEdit  bool
 }
 
 // newCellView is the add-cell form's data.
@@ -129,17 +139,19 @@ func (s *Server) buildPage() (pageView, error) {
 		title = filepath.Base(s.path)
 	}
 
+	canEdit := s.canEdit(nb)
 	page := pageView{
 		Base:        s.base,
 		Title:       title,
 		Path:        s.path,
-		Preamble:    s.proseViewFor(src, "preamble", nb.Preamble(), false),
+		Preamble:    s.proseViewFor(src, "preamble", nb.Preamble(), false, canEdit),
 		Fingerprint: fingerprint(nb, src),
 		Wide:        s.wide(nb),
+		CanEdit:     canEdit,
 	}
 	cells := nb.Cells()
 	for i, c := range cells {
-		v := s.buildCell(src, i, c, false)
+		v := s.buildCell(src, i, c, false, canEdit)
 		// A disabled button says "this cell cannot move" where a hidden one would leave
 		// the user wondering, which is the same reasoning as Runnable above.
 		v.First = i == 0
@@ -155,7 +167,7 @@ func (s *Server) buildPage() (pageView, error) {
 }
 
 // buildCell assembles one cell's view.
-func (s *Server) buildCell(src []byte, i int, c *doc.Cell, editing bool) cellView {
+func (s *Server) buildCell(src []byte, i int, c *doc.Cell, editing, canEdit bool) cellView {
 	v := cellView{
 		Base:        s.base,
 		Index:       i,
@@ -164,10 +176,11 @@ func (s *Server) buildCell(src []byte, i int, c *doc.Cell, editing bool) cellVie
 		ID:          c.ID,
 		Source:      c.SourceText(),
 		Runnable:    true,
-		ProseBefore: s.proseViewFor(src, strconv.Itoa(i)+"-before", c.ProseBefore(), false),
-		ProseAfter:  s.proseViewFor(src, strconv.Itoa(i)+"-after", c.ProseAfter(), false),
+		ProseBefore: s.proseViewFor(src, strconv.Itoa(i)+"-before", c.ProseBefore(), false, canEdit),
+		ProseAfter:  s.proseViewFor(src, strconv.Itoa(i)+"-after", c.ProseAfter(), false, canEdit),
 		Result:      s.buildResult(src, i, c),
 		Editing:     editing,
+		CanEdit:     canEdit,
 	}
 
 	// The reasons a cell cannot be run are spec conditions, not UI preferences, so
@@ -315,13 +328,14 @@ func metaSummary(r doc.Result) string {
 }
 
 // proseViewFor builds one prose region's view.
-func (s *Server) proseViewFor(src []byte, ref string, span doc.Span, editing bool) proseView {
+func (s *Server) proseViewFor(src []byte, ref string, span doc.Span, editing, canEdit bool) proseView {
 	return proseView{
 		Base:     s.base,
 		Ref:      ref,
 		Text:     string(span.In(src)),
 		Editable: true,
 		Editing:  editing,
+		CanEdit:  canEdit,
 	}
 }
 

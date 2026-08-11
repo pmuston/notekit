@@ -11,6 +11,7 @@
     {{else}}
     <button class="nk-btn" disabled title="{{.NotRunnable}}">Run</button>
     {{end}}
+    {{if .CanEdit}}
     <button class="nk-btn" {{if .First}}disabled title="already first"{{else}}
             hx-post="{{.Base}}/cells/{{.Index}}/move-up"
             hx-swap="none"
@@ -26,6 +27,7 @@
             hx-swap="none"
             hx-confirm="Delete this cell, its prose and its results? This cannot be undone."
             title="delete this cell and everything in its section">Delete</button>
+    {{end}}
   </div>
 
   {{template "prose" .ProseBefore}}
@@ -42,13 +44,15 @@
       <span class="nk-dirty" data-dirty="false">unsaved changes</span>
     </div>
   </form>
-  {{else}}
+  {{else if .CanEdit}}
   <pre class="nk-source" role="button" tabindex="0"
        aria-label="edit cell source"
        hx-get="{{.Base}}/cells/{{.Index}}/source?edit=1"
        hx-trigger="click, keyup[key=='Enter']"
        hx-target="#cell-{{.Index}}" hx-swap="outerHTML"
        title="click or press Enter to edit">{{.Source}}</pre>
+  {{else}}
+  <pre class="nk-source">{{.Source}}</pre>
   {{end}}
 
   <div id="result-{{.Index}}" class="nk-result">{{template "result" .Result}}</div>

@@ -1515,3 +1515,112 @@ func TestWithWidthOverridesTheNotebook(t *testing.T) {
 		t.Errorf("WithWidth should be able to override width: full:\n%s", got)
 	}
 }
+
+// --- editable (§2.3) ------------------------------------------------------------
+
+const editableCell = "\n## A\n\n```echo\nx\n```\n"
+
+// openNotebook serves src and returns the Echo instance, for tests that need to
+// make requests other than the page load.
+func openNotebook(t *testing.T, src string, opts ...Option) (*echo.Echo, string) {
+	t.Helper()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "e.md")
+	if err := os.WriteFile(path, []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	sch := run.New()
+	t.Cleanup(func() { _ = sch.Shutdown(context.Background()) })
+	if err := sch.Open(context.Background(), path, echoexec.New()); err != nil {
+		t.Fatal(err)
+	}
+	s, err := New(sch, path, opts...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return s.Echo(), path
+}
+
+func TestEditableFalseHidesTheAffordances(t *testing.T) {
+	got := servePage(t, "---\nnotekit: 1\neditable: false\n---\n"+editableCell)
+	for _, unwanted := range []string{"move-up", "move-down", "hx-delete", "?edit=1", "addcell"} {
+		if strings.Contains(got, unwanted) {
+			t.Errorf("editable: false should not offer %q:\n%s", unwanted, got)
+		}
+	}
+	if !strings.Contains(got, "nk-readonly") {
+		t.Errorf("the page should say why editing is absent:\n%s", got)
+	}
+}
+
+func TestEditableDefaultsToEditable(t *testing.T) {
+	got := servePage(t, "---\nnotekit: 1\n---\n"+editableCell)
+	if !strings.Contains(got, "?edit=1") {
+		t.Errorf("a notebook that says nothing should be editable:\n%s", got)
+	}
+}
+
+// §2.3: only `false` disables editing, on the same reasoning as §2.2.
+func TestUnknownEditableValueMeansEditable(t *testing.T) {
+	for _, v := range []string{"true", "FALSE", "no", ""} {
+		got := servePage(t, "---\nnotekit: 1\neditable: "+v+"\n---\n"+editableCell)
+		if !strings.Contains(got, "?edit=1") {
+			t.Errorf("editable: %q should still be editable", v)
+		}
+	}
+}
+
+// The routes are the control; hiding a button is not. A stale tab or a direct
+// request must be refused.
+func TestEditableFalseRefusesMutatingRoutes(t *testing.T) {
+	e, _ := openNotebook(t, "---\nnotekit: 1\neditable: false\n---\n"+editableCell)
+
+	for _, tc := range []struct{ method, path string }{
+		{http.MethodPut, "/cells/0/source"},
+		{http.MethodPost, "/cells/add"},
+		{http.MethodDelete, "/cells/0"},
+		{http.MethodPost, "/cells/0/move-up"},
+		{http.MethodPost, "/cells/0/move-down"},
+		{http.MethodPut, "/prose/0-before"},
+	} {
+		rec := httptest.NewRecorder()
+		e.ServeHTTP(rec, httptest.NewRequest(tc.method, tc.path, nil))
+		if rec.Code != http.StatusForbidden {
+			t.Errorf("%s %s = %d, want 403", tc.method, tc.path, rec.Code)
+		}
+	}
+}
+
+// The point of a restricted notebook is that it still runs (§2.3).
+func TestEditableFalseStillRuns(t *testing.T) {
+	e, path := openNotebook(t, "---\nnotekit: 1\neditable: false\n---\n"+editableCell)
+
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/cells/0/run", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("running must not be gated by editable: got %d, %s", rec.Code, rec.Body.String())
+	}
+
+	// And the result reaches the file: a restricted notebook is still written to.
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		if b, _ := os.ReadFile(path); strings.Contains(string(b), "```output") {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Error("a run in an editable: false notebook never wrote its result")
+}
+
+// WithEditing overrides the notebook, the same way WithTitle and WithWidth do.
+func TestWithEditingOverridesTheNotebook(t *testing.T) {
+	got := servePage(t, "---\nnotekit: 1\n---\n"+editableCell, WithEditing(false))
+	if strings.Contains(got, "?edit=1") {
+		t.Errorf("WithEditing(false) should withhold editing:\n%s", got)
+	}
+
+	got = servePage(t, "---\nnotekit: 1\neditable: false\n---\n"+editableCell, WithEditing(true))
+	if !strings.Contains(got, "?edit=1") {
+		t.Errorf("WithEditing(true) should override editable: false:\n%s", got)
+	}
+}

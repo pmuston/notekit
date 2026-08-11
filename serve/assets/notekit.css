@@ -241,3 +241,7 @@ textarea.nk-prose-edit {
 .ansi-bg-13 { background: #c77dda; }
 .ansi-bg-14 { background: #4fd0d0; }
 .ansi-bg-15 { background: #f2f4f8; }
+
+/* `editable: false` (§2.3): says why the editing affordances are absent, rather
+   than leaving a reader to wonder where they went. */
+.nk-readonly { color: var(--nk-muted); font-size: 0.9rem; border-top: 1px solid var(--nk-border); padding-top: 1rem; }

@@ -23,7 +23,10 @@
 
   {{range .Cells}}{{template "cell" .}}{{end}}
 
-  {{template "addcell" .AddCell}}
+  {{if .CanEdit}}{{template "addcell" .AddCell}}{{else}}
+  <p class="nk-readonly">This notebook is marked <code>editable: false</code>.
+     Cells still run; edit the file in your editor to change it.</p>
+  {{end}}
 </main>
 </body>
 </html>{{end}}
