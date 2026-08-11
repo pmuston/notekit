@@ -229,14 +229,35 @@ func (s *Server) PollIntervalMS() string { return strconv.FormatInt(s.poll.Milli
 // Runs within a notebook are serialised by the scheduler, so submitting them all at once
 // is safe and they execute in order. Cells another executor claims are skipped rather
 // than erroring: a real notebook mixes languages.
+// handleRunAll submits every cell, or every cell from `from` onwards.
+//
+// Submitting rather than looping-and-waiting is what package run is for: runs on
+// one notebook are serialised in request order, because the session is stateful.
+// Cell indices are stable across this — a result is written into a cell's result
+// position and adds no cell — so the indices submitted here still name the same
+// cells when their turn comes.
+//
+// Note that a failure does not stop the rest: they are queued already. See the
+// note on partial runs in the package docs.
 func (s *Server) handleRunAll(c echo.Context) error {
 	cells, err := s.sched.Cells(s.path)
 	if err != nil {
 		return s.flash(c, http.StatusInternalServerError, err.Error())
 	}
 
+	// `from` runs this cell and everything below it, which is what you want when
+	// an earlier stage is expensive and already done.
+	from := 0
+	if raw := c.FormValue("from"); raw != "" {
+		n, err := strconv.Atoi(raw)
+		if err != nil || n < 0 || n >= len(cells) {
+			return s.flash(c, http.StatusBadRequest, "no such cell")
+		}
+		from = n
+	}
+
 	submitted, skipped := 0, 0
-	for i := range cells {
+	for i := from; i < len(cells); i++ {
 		if _, err := s.sched.Submit(s.path, i); err != nil {
 			skipped++
 			continue

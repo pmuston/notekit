@@ -1918,3 +1918,62 @@ func TestNoRequiresKeyIsSilent(t *testing.T) {
 		t.Errorf("a notebook without the key should say nothing:\n%s", got)
 	}
 }
+
+// --- run below ------------------------------------------------------------------
+
+// runAllFrom posts run-all with a `from` value and returns the recorder.
+func runAllFrom(e *echo.Echo, from string) *httptest.ResponseRecorder {
+	body := strings.NewReader("from=" + from)
+	req := httptest.NewRequest(http.MethodPost, "/cells/run-all", body)
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	return rec
+}
+
+const threeCells = "\n## A\n\n```echo\na\n```\n\n## B\n\n```echo\nb\n```\n\n## C\n\n```echo\nc\n```\n"
+
+func TestRunAllFromSkipsEarlierCells(t *testing.T) {
+	e, _ := openNotebook(t, "---\nnotekit: 1\n---\n"+threeCells)
+	rec := runAllFrom(e, "1")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d: %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "running 2 cells") {
+		t.Errorf("from=1 of 3 should run 2 cells, got: %s", rec.Body.String())
+	}
+}
+
+func TestRunAllWithoutFromRunsEverything(t *testing.T) {
+	e, _ := openNotebook(t, "---\nnotekit: 1\n---\n"+threeCells)
+	req := httptest.NewRequest(http.MethodPost, "/cells/run-all", nil)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if !strings.Contains(rec.Body.String(), "running 3 cells") {
+		t.Errorf("no from should run every cell, got: %s", rec.Body.String())
+	}
+}
+
+func TestRunAllFromLastCellRunsOne(t *testing.T) {
+	e, _ := openNotebook(t, "---\nnotekit: 1\n---\n"+threeCells)
+	if got := runAllFrom(e, "2").Body.String(); !strings.Contains(got, "running 1 cells") {
+		t.Errorf("from=2 of 3 should run 1 cell, got: %s", got)
+	}
+}
+
+func TestRunAllFromRejectsABadIndex(t *testing.T) {
+	e, _ := openNotebook(t, "---\nnotekit: 1\n---\n"+threeCells)
+	for _, v := range []string{"3", "-1", "x"} {
+		if code := runAllFrom(e, v).Code; code != http.StatusBadRequest {
+			t.Errorf("from=%q = %d, want 400", v, code)
+		}
+	}
+}
+
+// The affordance is offered per cell.
+func TestPageOffersRunBelow(t *testing.T) {
+	got := servePage(t, "---\nnotekit: 1\n---\n"+threeCells)
+	if n := strings.Count(got, "Run below"); n != 3 {
+		t.Errorf("expected a Run below on each of 3 cells, got %d:\n%s", n, got)
+	}
+}
