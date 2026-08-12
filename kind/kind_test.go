@@ -50,7 +50,7 @@ func TestLookupFormat(t *testing.T) {
 		{format: CSV, want: Table, ok: true},
 		{format: JSONL, want: Table, ok: true},
 		{format: "graph", ok: false},
-		{format: "tsv", ok: false},
+		{format: "parquet", ok: false},
 	}
 	for _, tt := range tests {
 		t.Run("format="+tt.format, func(t *testing.T) {
@@ -188,7 +188,7 @@ func TestDurableTable(t *testing.T) {
 		{name: "pointer payload", payload: &TablePayload{Format: CSV, Body: "a\n"}, format: CSV},
 		// The kit does not transcode between csv and jsonl, so an unknown
 		// serialisation is an error rather than a guess.
-		{name: "unknown format", payload: TablePayload{Format: "tsv"}, wantErr: "is not"},
+		{name: "unknown format", payload: TablePayload{Format: "parquet"}, wantErr: "is not"},
 		{name: "missing format", payload: TablePayload{Body: "a\n"}, wantErr: "is not"},
 		{name: "wrong type", payload: "a,b\n", wantErr: "want kind.TablePayload"},
 		{name: "nil pointer", payload: (*TablePayload)(nil), wantErr: "want kind.TablePayload"},
@@ -274,7 +274,7 @@ func TestDurableValidate(t *testing.T) {
 
 func TestRegistryFormatsOmitsTheEmptyOne(t *testing.T) {
 	got := NewRegistry().Formats()
-	want := []string{CSV, JSONL, Text}
+	want := []string{CSV, JSONL, Text, TSV}
 	if len(got) != len(want) {
 		t.Fatalf("Formats() = %v, want %v", got, want)
 	}
@@ -284,3 +284,80 @@ func TestRegistryFormatsOmitsTheEmptyOne(t *testing.T) {
 		}
 	}
 }
+
+func TestLiveTSVRendersATable(t *testing.T) {
+	k, ok := NewRegistry().LookupFormat(TSV)
+	if !ok {
+		t.Fatal("tsv is not registered")
+	}
+	got, err := k.Live(LiveInput{Format: TSV, Body: "size\tpath\n1.2G\t./data\n"})
+	if err != nil {
+		t.Fatalf("Live: %v", err)
+	}
+	for _, want := range []string{"<table", "<th", ">size<", ">path<", ">1.2G<", ">./data<"} {
+		if !strings.Contains(string(got), want) {
+			t.Errorf("rendered table missing %q:\n%s", want, got)
+		}
+	}
+}
+
+func TestLiveTSVDoesNotUnquote(t *testing.T) {
+	k, _ := NewRegistry().LookupFormat(TSV)
+	// TSV has no quoting: these characters are data. A CSV reader would either
+	// strip the quotes or fail the record, and every tab-separated producer emits
+	// them verbatim.
+	body := "quote\tcomma\n" + `he said "hi"` + "\ta,b\n"
+	got, err := k.Live(LiveInput{Format: TSV, Body: body})
+	if err != nil {
+		t.Fatalf("Live: %v", err)
+	}
+	if !strings.Contains(string(got), `he said &#34;hi&#34;`) {
+		t.Errorf("the quotes were not kept as data:\n%s", got)
+	}
+	// A comma is an ordinary character in a tab-separated field.
+	if !strings.Contains(string(got), ">a,b<") {
+		t.Errorf("the field was split on a comma:\n%s", got)
+	}
+}
+
+func TestLiveTSVRaggedAndTrailingCR(t *testing.T) {
+	k, _ := NewRegistry().LookupFormat(TSV)
+	got, err := k.Live(LiveInput{Format: TSV, Body: "a\tb\r\n1\r\n2\t3\t4\n"})
+	if err != nil {
+		t.Fatalf("Live: %v", err)
+	}
+	// A short row is padded and a long one truncated to the header, as for csv: a
+	// result is data, not a schema.
+	if !strings.Contains(string(got), ">b<") || strings.Contains(string(got), ">b\r<") {
+		t.Errorf("the trailing CR was kept in a cell:\n%s", got)
+	}
+	if strings.Contains(string(got), ">4<") {
+		t.Errorf("a cell beyond the header was rendered:\n%s", got)
+	}
+}
+
+func TestLiveTSVEmptyFallsBackToText(t *testing.T) {
+	k, _ := NewRegistry().LookupFormat(TSV)
+	got, err := k.Live(LiveInput{Format: TSV, Body: ""})
+	if err != nil {
+		t.Fatalf("Live: %v", err)
+	}
+	// An unparseable table shows the body rather than an error, as csv does.
+	if !strings.Contains(string(got), "nk-malformed") {
+		t.Errorf("empty tsv did not fall back to text:\n%s", got)
+	}
+}
+
+func TestDurableTSV(t *testing.T) {
+	k, _ := Lookup(NewRegistry(), Table)
+	d, err := k.Durable(TablePayload{Format: TSV, Body: "a\tb\n1\t2\n"})
+	if err != nil {
+		t.Fatalf("Durable: %v", err)
+	}
+	if d.Inline == nil || d.Inline.Format != TSV || d.Inline.Body != "a\tb\n1\t2\n" {
+		t.Errorf("durable form = %+v", d.Inline)
+	}
+}
+
+// Lookup is a test-local convenience so a table test can name a kind directly.
+func Lookup(r *Registry, name string) (Kind, bool) { return r.Lookup(name) }

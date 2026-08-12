@@ -37,6 +37,7 @@ const (
 // Table serialisations (the `format` metadata value, format spec §6).
 const (
 	CSV   = "csv"
+	TSV   = "tsv"
 	JSONL = "jsonl"
 )
 
@@ -167,7 +168,7 @@ func NewRegistry() *Registry {
 	})
 	_ = r.Register(Kind{
 		Name:    Table,
-		Formats: []string{CSV, JSONL},
+		Formats: []string{CSV, TSV, JSONL},
 		Durable: durableTable,
 		Live:    liveTable,
 	})
@@ -293,9 +294,10 @@ func durableTable(payload any) (Durable, error) {
 		}
 	}
 	switch v.Format {
-	case CSV, JSONL:
+	case CSV, TSV, JSONL:
 	default:
-		return Durable{}, fmt.Errorf("kind %q: format %q is not %q or %q", Table, v.Format, CSV, JSONL)
+		return Durable{}, fmt.Errorf("kind %q: format %q is not %q, %q or %q",
+			Table, v.Format, CSV, TSV, JSONL)
 	}
 	return Durable{Inline: &Inline{Format: v.Format, Body: v.Body}}, nil
 }

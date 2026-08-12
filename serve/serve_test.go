@@ -722,12 +722,12 @@ func TestMalformedTableFallsBackToText(t *testing.T) {
 
 func TestUnknownFormatFallsBackToText(t *testing.T) {
 	h := newHarness(t, "## Odd\n\n```echo\nx\n```\n\n"+
-		"```output {format=tsv}\na\tb\n```\n")
+		"```output {format=parquet}\na,b\n```\n")
 	body := h.get("/").Body.String()
 	if !strings.Contains(body, "nk-malformed") {
 		t.Errorf("an unrenderable format should fall back to text:\n%s", body)
 	}
-	if !strings.Contains(body, "a\tb") {
+	if !strings.Contains(body, "a,b") {
 		t.Errorf("the body should still be shown:\n%s", body)
 	}
 }

@@ -34,15 +34,23 @@ Fixed for v1. Tools must support all three.
   stripped, one trailing newline.
 - Live: preformatted block; ANSI colour rendered live only (harvest F12).
 
-### 2.2 `table` (durable as `csv` or `jsonl`)
+### 2.2 `table` (durable as `csv`, `tsv` or `jsonl`)
 
-- Durable: `output` fence with `format=csv` (RFC 4180, header row required) or
+- Durable: `output` fence with `format=csv` (RFC 4180, header row required),
+  `format=tsv` (tab-separated, header row required, **no quoting**), or
   `format=jsonl` (one JSON object per line).
 - Live: sortable HTML table; JSONL flattened to columns by first-seen key order.
   Cells beyond the runtime output cap follow the standard truncation rule; the
   table renders what was persisted, never a fuller live-only version.
 - Executors declare which serialisation they emit; the kit does not transcode
-  between `csv` and `jsonl`.
+  between them.
+
+`tsv` is not `csv` with a different delimiter. It has no quoting mechanism at all
+(IANA `text/tab-separated-values`): a field cannot contain a tab or a newline, and
+nothing is unescaped on the way in, so a cell reading `he said "hi"` is exactly those
+characters. Reading it through a CSV parser would give `"` a meaning the format does
+not give it. It earns a place beside `csv` because a shell emits it for free — `cut`,
+`awk -F'\t'`, `psql -A -F$'\t'` — from data that would need quoting as CSV.
 
 ### 2.3 `error`
 

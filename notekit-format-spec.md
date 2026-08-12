@@ -475,7 +475,8 @@ size,path
 Rules:
 
 - Info string: tag `output`, then metadata (§9). Reserved keys on `output`:
-  - `format` — the result kind: `text` (default when absent), `csv`, `jsonl`.
+  - `format` — the result kind: `text` (default when absent), `csv`, `tsv`,
+    `jsonl`.
     Extension kinds per the rendering contract.
   - `run` — RFC 3339 UTC timestamp of the run that produced this block.
   - `tool` — producing tool and version, `name/version`.

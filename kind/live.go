@@ -44,7 +44,7 @@ func liveText(in LiveInput) (template.HTML, error) {
 	return template.HTML(`<pre class="nk-output">` + ANSIToHTML(in.Body) + `</pre>`), nil
 }
 
-// liveTable renders csv or jsonl as a sortable table (harvest V1).
+// liveTable renders csv, tsv or jsonl as a sortable table (harvest V1).
 //
 // Sortability is client-side and therefore live-only: it degrades to an ordinary table
 // with JavaScript off, and to a fenced block of csv on GitHub. The table renders what
@@ -57,6 +57,8 @@ func liveTable(in LiveInput) (template.HTML, error) {
 	switch in.Format {
 	case CSV:
 		header, rows, err = parseCSV(in.Body)
+	case TSV:
+		header, rows, err = parseTSV(in.Body)
 	case JSONL:
 		header, rows, err = parseJSONL(in.Body)
 	default:
@@ -119,6 +121,36 @@ func parseCSV(body string) ([]string, [][]string, error) {
 			return nil, nil, err
 		}
 		rows = append(rows, row)
+	}
+	return header, rows, nil
+}
+
+// parseTSV splits each line on tabs. Deliberately not encoding/csv with Comma set to
+// tab: TSV has no quoting mechanism at all (IANA text/tab-separated-values), so a field
+// simply cannot contain a tab or a newline, and there is nothing to unescape.
+//
+// Running it through a CSV reader would give `"` a meaning the format does not give it,
+// and a cell reading `he said "hi"` — which every tab-separated producer emits verbatim
+// — would come back mangled or fail the whole table. Splitting is not the lazy option
+// here; it is the correct one.
+//
+// This is also why nothing transcodes between the two: a tab-separated field containing
+// a comma is ordinary, and a comma-separated one containing a tab is not representable
+// the other way round.
+func parseTSV(body string) ([]string, [][]string, error) {
+	lines := strings.Split(strings.TrimSuffix(body, "\n"), "\n")
+	if len(lines) == 0 || strings.TrimSpace(lines[0]) == "" {
+		return nil, nil, fmt.Errorf("empty tsv")
+	}
+	// A trailing \r survives a file written on Windows or a command run under a pty
+	// that has not been told otherwise; it is not part of the last field.
+	header := strings.Split(strings.TrimSuffix(lines[0], "\r"), "\t")
+	var rows [][]string
+	for _, line := range lines[1:] {
+		if line == "" {
+			continue
+		}
+		rows = append(rows, strings.Split(strings.TrimSuffix(line, "\r"), "\t"))
 	}
 	return header, rows, nil
 }
