@@ -35,6 +35,45 @@ func (i *Info) Insert(key, value string) (string, error) {
 	return i.raw[:i.lastEntryEnd] + ", " + entry + i.raw[i.lastEntryEnd:], nil
 }
 
+// Set returns the info string with key set to value: appended when the key is
+// absent, and otherwise replacing that one entry's text in place.
+//
+// It is the narrowest edit that changes a value. Every other entry keeps its
+// bytes, its spacing and its position, so a hand-authored fence comes back
+// recognisably its own — the promise [Info.Insert] makes, extended to a key that
+// is already there.
+//
+// This is not a licence to reformat a block the tool did not write (§10). It
+// exists for the case where a *user* changes one value through a tool — picking a
+// different `format` for a cell, say — which is an edit they asked for, to the one
+// entry they named.
+//
+// A flag (a valueless key) becomes a keyed entry. Passing an empty value writes
+// `key=""` rather than removing the key: removal would have to decide which
+// neighbouring comma to take with it, and no caller has needed it.
+func (i *Info) Set(key, value string) (string, error) {
+	if err := validateKey(key); err != nil {
+		return "", err
+	}
+	e, ok := i.entryFor(key)
+	if !ok {
+		return i.Insert(key, value)
+	}
+	return i.raw[:e.start] + formatEntry(Entry{Key: key, Value: value}) + i.raw[e.end:], nil
+}
+
+// entryFor returns a stored entry with its offsets intact. [Info.Get] is the
+// exported form and deliberately does not expose them: an Entry a caller has held
+// on to may outlive the Info it came from.
+func (i *Info) entryFor(key string) (Entry, bool) {
+	for _, e := range i.entries {
+		if e.Key == key {
+			return e, true
+		}
+	}
+	return Entry{}, false
+}
+
 // Format serialises an info string in canonical form (§9): a single space between
 // tag and metadata, single spaces after commas, reservedOrder's keys first in the
 // order given, then every remaining entry in the order supplied.

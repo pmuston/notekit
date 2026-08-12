@@ -52,6 +52,18 @@ h1.nk-title { font-size: 1.6rem; margin: 0 0 0.25rem; }
 .nk-cell-head h2 { font-size: 1.15rem; margin: 0 0 0.5rem; flex: 1; }
 .nk-cell-meta { color: var(--nk-muted); font: 0.75rem var(--nk-mono); }
 
+/* The format picker sits with the cell's metadata rather than among its buttons: it
+   says how a result is read, which is a property of the cell, not an action on it. */
+.nk-format {
+  color: var(--nk-muted);
+  font: 0.75rem var(--nk-mono);
+  padding: 0.1rem 0.2rem;
+  border: 1px solid var(--nk-border);
+  border-radius: 4px;
+  background: transparent;
+}
+.nk-format:disabled { opacity: 0.5; }
+
 /* Source and results */
 pre.nk-source, pre.nk-output, pre.nk-error {
   margin: 0.5rem 0;

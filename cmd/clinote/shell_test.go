@@ -222,10 +222,28 @@ func TestTableFormats(t *testing.T) {
 		}
 	})
 
+	t.Run("tsv", func(t *testing.T) {
+		// The executor asks the registry rather than matching a list of its own, so a
+		// serialisation added to the table kind arrives here without an edit. This is
+		// the case that proves it: tsv was documented while a hard-coded `case`
+		// quietly rendered it as text.
+		got, err := runCell(t, sess, "printf 'a\\tb\\n'\n", "sh {format=tsv}")
+		if err != nil {
+			t.Fatalf("Execute: %v", err)
+		}
+		if got.Kind != kind.Table {
+			t.Fatalf("Kind = %q, want %q", got.Kind, kind.Table)
+		}
+		p, ok := got.Payload.(kind.TablePayload)
+		if !ok || p.Format != kind.TSV {
+			t.Errorf("Payload = %#v", got.Payload)
+		}
+	})
+
 	t.Run("unknown format is text", func(t *testing.T) {
 		// The kit does not transcode, and `table` would reject an unknown
 		// serialisation, so text is what the cell actually asked for.
-		got, err := runCell(t, sess, "echo x\n", "sh {format=tsv}")
+		got, err := runCell(t, sess, "echo x\n", "sh {format=parquet}")
 		if err != nil {
 			t.Fatalf("Execute: %v", err)
 		}

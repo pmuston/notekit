@@ -722,12 +722,12 @@ func TestMalformedTableFallsBackToText(t *testing.T) {
 
 func TestUnknownFormatFallsBackToText(t *testing.T) {
 	h := newHarness(t, "## Odd\n\n```echo\nx\n```\n\n"+
-		"```output {format=tsv}\na\tb\n```\n")
+		"```output {format=parquet}\na,b\n```\n")
 	body := h.get("/").Body.String()
 	if !strings.Contains(body, "nk-malformed") {
 		t.Errorf("an unrenderable format should fall back to text:\n%s", body)
 	}
-	if !strings.Contains(body, "a\tb") {
+	if !strings.Contains(body, "a,b") {
 		t.Errorf("the body should still be shown:\n%s", body)
 	}
 }
@@ -1842,5 +1842,268 @@ func TestLocalFilesWithARelativeNotebookPath(t *testing.T) {
 	s.Echo().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/chart.svg", nil))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("a relative notebook path must still serve its files: got %d", rec.Code)
+	}
+}
+
+// --- requires (§2.5) ------------------------------------------------------------
+
+const requiresCell = "\n## A\n\n```echo\nx\n```\n"
+
+func TestRequiresNamesMissingVariables(t *testing.T) {
+	t.Setenv("NK_PRESENT", "s3cret-sentinel-9f2a")
+	t.Setenv("NK_EMPTY", "")
+	got := servePage(t, "---\nnotekit: 1\nrequires: [NK_PRESENT, NK_EMPTY, NK_UNSET]\n---\n"+requiresCell)
+
+	for _, want := range []string{"NK_EMPTY", "NK_UNSET"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("%s should be reported missing:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "NK_PRESENT") {
+		t.Errorf("a variable that is set must not be reported:\n%s", got)
+	}
+	// Names only — §2.5 reads nothing but whether each is non-empty. A distinctive
+	// sentinel, because "value" appears in the page's own form attributes.
+	if strings.Contains(got, "s3cret-sentinel-9f2a") {
+		t.Error("a variable's VALUE must never reach the page")
+	}
+}
+
+func TestRequiresSaysNothingWhenAllPresent(t *testing.T) {
+	t.Setenv("NK_A", "1")
+	t.Setenv("NK_B", "2")
+	got := servePage(t, "---\nnotekit: 1\nrequires: [NK_A, NK_B]\n---\n"+requiresCell)
+	if strings.Contains(got, "Missing from the environment") {
+		t.Errorf("nothing should be reported when all are set:\n%s", got)
+	}
+}
+
+// Both value forms §2.5 defines are the same thing to a reader.
+func TestRequiresAcceptsBothInlineForms(t *testing.T) {
+	for _, form := range []string{"[NK_X, NK_Y]", "NK_X, NK_Y"} {
+		got := servePage(t, "---\nnotekit: 1\nrequires: "+form+"\n---\n"+requiresCell)
+		if !strings.Contains(got, "NK_X") || !strings.Contains(got, "NK_Y") {
+			t.Errorf("form %q was not read:\n%s", form, got)
+		}
+	}
+}
+
+// A YAML block list leaves the key present with no value. §2.5 requires saying so
+// rather than reporting nothing, because an empty declaration is never intended.
+func TestRequiresBlockListIsReportedAsAMistake(t *testing.T) {
+	got := servePage(t, "---\nnotekit: 1\nrequires:\n  - NK_BLOCK\n---\n"+requiresCell)
+	if !strings.Contains(got, "requires:") || !strings.Contains(got, "inline") {
+		t.Errorf("a block list should be called out, naming the inline form:\n%s", got)
+	}
+}
+
+// Reporting, never blocking: the notebook opens and its cells run.
+func TestRequiresDoesNotBlock(t *testing.T) {
+	e, _ := openNotebook(t, "---\nnotekit: 1\nrequires: [NK_DEFINITELY_UNSET]\n---\n"+requiresCell)
+	page := httptest.NewRecorder()
+	e.ServeHTTP(page, httptest.NewRequest(http.MethodGet, "/", nil))
+	if page.Code != http.StatusOK {
+		t.Fatalf("the notebook must still open: got %d", page.Code)
+	}
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/cells/0/run", nil))
+	if rec.Code != http.StatusOK {
+		t.Errorf("cells must still run: got %d", rec.Code)
+	}
+}
+
+func TestNoRequiresKeyIsSilent(t *testing.T) {
+	got := servePage(t, "---\nnotekit: 1\n---\n"+requiresCell)
+	if strings.Contains(got, "nk-notice") {
+		t.Errorf("a notebook without the key should say nothing:\n%s", got)
+	}
+}
+
+// --- run below ------------------------------------------------------------------
+
+// runAllFrom posts run-all with a `from` value and returns the recorder.
+func runAllFrom(e *echo.Echo, from string) *httptest.ResponseRecorder {
+	body := strings.NewReader("from=" + from)
+	req := httptest.NewRequest(http.MethodPost, "/cells/run-all", body)
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	return rec
+}
+
+const threeCells = "\n## A\n\n```echo\na\n```\n\n## B\n\n```echo\nb\n```\n\n## C\n\n```echo\nc\n```\n"
+
+func TestRunAllFromSkipsEarlierCells(t *testing.T) {
+	e, _ := openNotebook(t, "---\nnotekit: 1\n---\n"+threeCells)
+	rec := runAllFrom(e, "1")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d: %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "running 2 cells") {
+		t.Errorf("from=1 of 3 should run 2 cells, got: %s", rec.Body.String())
+	}
+}
+
+func TestRunAllWithoutFromRunsEverything(t *testing.T) {
+	e, _ := openNotebook(t, "---\nnotekit: 1\n---\n"+threeCells)
+	req := httptest.NewRequest(http.MethodPost, "/cells/run-all", nil)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if !strings.Contains(rec.Body.String(), "running 3 cells") {
+		t.Errorf("no from should run every cell, got: %s", rec.Body.String())
+	}
+}
+
+func TestRunAllFromLastCellRunsOne(t *testing.T) {
+	e, _ := openNotebook(t, "---\nnotekit: 1\n---\n"+threeCells)
+	if got := runAllFrom(e, "2").Body.String(); !strings.Contains(got, "running 1 cells") {
+		t.Errorf("from=2 of 3 should run 1 cell, got: %s", got)
+	}
+}
+
+func TestRunAllFromRejectsABadIndex(t *testing.T) {
+	e, _ := openNotebook(t, "---\nnotekit: 1\n---\n"+threeCells)
+	for _, v := range []string{"3", "-1", "x"} {
+		if code := runAllFrom(e, v).Code; code != http.StatusBadRequest {
+			t.Errorf("from=%q = %d, want 400", v, code)
+		}
+	}
+}
+
+// The affordance is offered per cell.
+func TestPageOffersRunBelow(t *testing.T) {
+	got := servePage(t, "---\nnotekit: 1\n---\n"+threeCells)
+	if n := strings.Count(got, "Run below"); n != 3 {
+		t.Errorf("expected a Run below on each of 3 cells, got %d:\n%s", n, got)
+	}
+}
+
+// --- the format picker (§6) ------------------------------------------------
+
+func TestFormatPickerOffersWhatTheRegistryRenders(t *testing.T) {
+	h := newHarness(t, "## Cell\n\n```echo\nx\n```\n")
+
+	page := h.get("/").Body.String()
+	// The options come from the registry, so the core kinds are all there and the
+	// current one — absent, therefore text — is what is selected.
+	for _, want := range []string{
+		`<option value="csv"`, `<option value="jsonl"`, `<option value="text"`,
+		`<option value="text" selected>`,
+	} {
+		if !strings.Contains(page, want) {
+			t.Errorf("page missing %q:\n%s", want, page)
+		}
+	}
+	// The empty format is the same kind as text (§6) and must not be offered as a
+	// second, blank-looking choice. Scoped to the picker's own markup: the add-cell
+	// form has a legitimately empty option of its own ("at the end").
+	picker := page[strings.Index(page, `class="nk-format"`):]
+	picker = picker[:strings.Index(picker, "</select>")]
+	if strings.Contains(picker, `<option value="">`) {
+		t.Errorf("the empty format was offered as an option:\n%s", picker)
+	}
+}
+
+func TestFormatPickerAddsTheKeyToABareFence(t *testing.T) {
+	h := newHarness(t, "## Cell\n\n```echo\nx\n```\n")
+
+	rec := h.do(http.MethodPut, "/cells/0/format", url.Values{"format": {"csv"}})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("PUT = %d: %s", rec.Code, rec.Body.String())
+	}
+	want := front + "## Cell\n\n```echo {format=csv}\nx\n```\n"
+	if got := h.contents(); got != want {
+		t.Errorf("notebook:\n got %q\nwant %q", got, want)
+	}
+}
+
+func TestFormatPickerReplacesInPlaceAndKeepsEverythingElse(t *testing.T) {
+	h := newHarness(t, "## Cell\n\n```echo {format=csv, id=aaaa2345}\nx\n```\n")
+
+	rec := h.do(http.MethodPut, "/cells/0/format", url.Values{"format": {"jsonl"}})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("PUT = %d: %s", rec.Code, rec.Body.String())
+	}
+	// The id keeps its bytes and its position: only the one entry named is rewritten.
+	want := front + "## Cell\n\n```echo {format=jsonl, id=aaaa2345}\nx\n```\n"
+	if got := h.contents(); got != want {
+		t.Errorf("notebook:\n got %q\nwant %q", got, want)
+	}
+}
+
+func TestFormatPickerRelabelsTheResultAlready0nThePage(t *testing.T) {
+	h := newHarness(t, "## Cell\n\n```echo\nx\n```\n\n"+
+		"```output {run=\"2026-01-01T00:00:00Z\", tool=\"t/1\"}\na,b\n1,2\n```\n")
+
+	rec := h.do(http.MethodPut, "/cells/0/format", url.Values{"format": {"csv"}})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("PUT = %d: %s", rec.Code, rec.Body.String())
+	}
+	got := h.contents()
+	// This is the whole point of the feature: the result that is already there is
+	// relabelled, so nobody has to re-run an expensive command to read it as a table.
+	if !strings.Contains(got, `output {run="2026-01-01T00:00:00Z", tool="t/1", format=csv}`) {
+		t.Errorf("the result was not relabelled:\n%s", got)
+	}
+	// Its provenance and its body are untouched — the bytes are what the command
+	// produced either way.
+	if !strings.Contains(got, "a,b\n1,2\n") {
+		t.Errorf("the result body changed:\n%s", got)
+	}
+	if !strings.Contains(h.get("/").Body.String(), "<table") {
+		t.Errorf("the relabelled result did not render as a table")
+	}
+}
+
+func TestFormatPickerLeavesAnErrorResultAlone(t *testing.T) {
+	h := newHarness(t, "## Cell\n\n```echo\nx\n```\n\n```error {status=1}\nboom\n```\n")
+
+	rec := h.do(http.MethodPut, "/cells/0/format", url.Values{"format": {"csv"}})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("PUT = %d: %s", rec.Code, rec.Body.String())
+	}
+	got := h.contents()
+	if !strings.Contains(got, "```error {status=1}\n") {
+		t.Errorf("the error block was rewritten:\n%s", got)
+	}
+	if !strings.Contains(got, "```echo {format=csv}\n") {
+		t.Errorf("the cell was not relabelled:\n%s", got)
+	}
+}
+
+func TestFormatPickerRefusesWhatNothingRenders(t *testing.T) {
+	h := newHarness(t, "## Cell\n\n```echo\nx\n```\n")
+	before := h.contents()
+
+	rec := h.do(http.MethodPut, "/cells/0/format", url.Values{"format": {"yaml"}})
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("PUT = %d, want 400: %s", rec.Code, rec.Body.String())
+	}
+	if h.contents() != before {
+		t.Errorf("the notebook was written despite the refusal:\n%s", h.contents())
+	}
+}
+
+func TestFormatPickerIsWithheldByEditableFalse(t *testing.T) {
+	h := newHarness(t, "## Cell\n\n```echo\nx\n```\n", WithEditing(false))
+	before := h.contents()
+
+	if page := h.get("/").Body.String(); !strings.Contains(page, `<select class="nk-format" name="format"`) ||
+		!strings.Contains(page, "disabled title=\"this notebook is marked editable: false\"") {
+		t.Errorf("the picker should be shown disabled, not hidden:\n%s", page)
+	}
+	rec := h.do(http.MethodPut, "/cells/0/format", url.Values{"format": {"csv"}})
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("PUT = %d, want 403: %s", rec.Code, rec.Body.String())
+	}
+	if h.contents() != before {
+		t.Errorf("the notebook was written despite the refusal:\n%s", h.contents())
+	}
+}
+
+func TestFormatPickerRejectsABadIndex(t *testing.T) {
+	h := newHarness(t, "## Cell\n\n```echo\nx\n```\n")
+	if rec := h.do(http.MethodPut, "/cells/9/format", url.Values{"format": {"csv"}}); rec.Code != http.StatusBadRequest {
+		t.Errorf("PUT = %d, want 400", rec.Code)
 	}
 }

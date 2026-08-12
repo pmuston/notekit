@@ -110,6 +110,54 @@ func (c *Cell) AssignID(id string) (Edit, error) {
 	return Edit{Span: c.InfoSpan, Text: info}, nil
 }
 
+// KeyFormat is the reserved key naming how a body should be rendered (§6). The
+// format assigns it no meaning beyond that; which values exist belongs to a tool's
+// kind registry.
+const KeyFormat = "format"
+
+// SetFormat returns the edits that change how a cell renders: the `format` key on
+// its source fence, and on any inline `output` result it already has.
+//
+// The results move with the cell because the point of changing a format is almost
+// always a result already on the page — a command whose output turned out to be
+// CSV, realised after it ran. Relabelling one is honest: a result body is the bytes
+// the command produced, and `format` says how to read them, not what they are. The
+// alternative — re-running to pick up the new label — is exactly what someone with
+// an expensive first stage is trying to avoid.
+//
+// An `error` result is left alone. §7's block records a failure, and a failure is
+// not a table however the cell that produced it is labelled. A sidecar is left
+// alone too, having no info string of its own to edit.
+//
+// Every edit is the narrowest one that changes the value ([meta.Info.Set]), so
+// nothing else on those fences is disturbed. It fails on a malformed info string
+// rather than repairing one (§10).
+func (c *Cell) SetFormat(format string) ([]Edit, error) {
+	if strings.ContainsAny(format, "\r\n") {
+		return nil, fmt.Errorf("notekit: a format cannot contain a newline")
+	}
+	if c.MetaErr != nil {
+		return nil, fmt.Errorf("notekit: cell %q has a malformed info string: %w", c.HeadingText, c.MetaErr)
+	}
+	info, err := c.Meta.Set(KeyFormat, format)
+	if err != nil {
+		return nil, fmt.Errorf("notekit: cell %q: %w", c.HeadingText, err)
+	}
+	edits := []Edit{{Span: c.InfoSpan, Text: info}}
+
+	for _, r := range c.Results {
+		if r.Form != ResultOutput || r.MetaErr != nil {
+			continue
+		}
+		rinfo, err := r.Meta.Set(KeyFormat, format)
+		if err != nil {
+			return nil, fmt.Errorf("notekit: cell %q result: %w", c.HeadingText, err)
+		}
+		edits = append(edits, Edit{Span: r.InfoSpan, Text: rinfo})
+	}
+	return edits, nil
+}
+
 // EditProse returns the edit that replaces a prose range.
 //
 // The caller is responsible for the span lying outside every cell's source fence

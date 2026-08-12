@@ -128,7 +128,7 @@ handling and calls every live session's destroy hook.
   run status polling at 500 ms with spinner, result rendering via the `kind`
   registry, inline prose editing with unsaved-changes indicator, save.
 - Live rendering niceties that must not leak to disk: ANSI colour in the browser,
-  sortable tables for `csv`/`jsonl` (JSONL flattened to columns).
+  sortable tables for `csv`/`tsv`/`jsonl` (JSONL flattened to columns).
 - All assets embedded via `go:embed` (harvest R9): no CDN, no network to render,
   no frontend build step. A `make vendor` target may refresh vendored files.
 - The package provides components, not a fixed application: each tool composes its

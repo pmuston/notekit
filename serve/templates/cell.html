@@ -3,11 +3,25 @@
   <div class="nk-cell-head">
     <h2>{{if .Heading}}{{.Heading}}{{else}}<em>(untitled)</em>{{end}}</h2>
     <span class="nk-cell-meta">{{.Lang}}{{if .ID}} · {{.ID}}{{end}}</span>
+    <select class="nk-format" name="format"
+            {{if .CanEdit}}hx-put="{{.Base}}/cells/{{.Index}}/format"
+            hx-target="#cell-{{.Index}}" hx-swap="outerHTML"
+            title="how this cell's result is read"
+            {{else}}disabled title="this notebook is marked editable: false"{{end}}
+            aria-label="result format">
+      {{$sel := .Format}}
+      {{range .Formats}}<option value="{{.}}"{{if eq . $sel}} selected{{end}}>{{.}}</option>{{end}}
+    </select>
     {{if .Runnable}}
     <button class="nk-btn"
             hx-post="{{.Base}}/cells/{{.Index}}/run"
             hx-target="#result-{{.Index}}"
             hx-swap="innerHTML">Run</button>
+    <button class="nk-btn"
+            hx-post="{{.Base}}/cells/run-all"
+            hx-vals='{"from": "{{.Index}}"}'
+            hx-swap="none"
+            title="run this cell and every cell below it">Run below</button>
     {{else}}
     <button class="nk-btn" disabled title="{{.NotRunnable}}">Run</button>
     {{end}}

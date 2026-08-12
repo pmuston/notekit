@@ -42,6 +42,10 @@ type pageView struct {
 	// but the tool did not grant it (§2.4). It is the whole reason that key
 	// exists: without it a reader sees a broken image and no explanation.
 	LocalFilesUngranted bool
+
+	// Env reports the notebook's declared environment (§2.5) — names only, and
+	// never a blocker.
+	Env envReport
 }
 
 // cellView is one cell's template data.
@@ -73,6 +77,13 @@ type cellView struct {
 	// §10 h says must not write the file.
 	First bool
 	Last  bool
+
+	// Format is the cell's current `format`, and Formats is what the registry can
+	// render — the picker's options. Format is "text" rather than "" when the key
+	// is absent, so the control has something selected: §6 makes the two the same
+	// kind, and a picker showing nothing selected would suggest otherwise.
+	Format  string
+	Formats []string
 }
 
 // resultView is a rendered result.
@@ -155,6 +166,7 @@ func (s *Server) buildPage() (pageView, error) {
 		CanEdit:     canEdit,
 
 		LocalFilesUngranted: !s.localFiles && wantsLocalFiles(nb.Front()),
+		Env:                 checkRequires(nb.Front()),
 	}
 	cells := nb.Cells()
 	for i, c := range cells {
@@ -188,6 +200,13 @@ func (s *Server) buildCell(src []byte, i int, c *doc.Cell, editing, canEdit bool
 		Result:      s.buildResult(src, i, c),
 		Editing:     editing,
 		CanEdit:     canEdit,
+		Format:      kind.Text,
+		Formats:     s.registry.Formats(),
+	}
+	if c.Meta != nil {
+		if e, ok := c.Meta.Get(doc.KeyFormat); ok && e.Value != "" {
+			v.Format = e.Value
+		}
 	}
 
 	// The reasons a cell cannot be run are spec conditions, not UI preferences, so

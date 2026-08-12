@@ -155,7 +155,7 @@ func TestLiveTableMalformedFallsBackToText(t *testing.T) {
 
 func TestLiveTableUnknownFormat(t *testing.T) {
 	// An unknown serialisation is an error: the kit does not transcode or guess.
-	if _, err := liveTable(LiveInput{Format: "tsv", Body: "a\tb\n"}); err == nil {
+	if _, err := liveTable(LiveInput{Format: "parquet", Body: "a,b\n"}); err == nil {
 		t.Error("want an error for an unrenderable format")
 	}
 }

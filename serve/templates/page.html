@@ -19,6 +19,19 @@
              hx-swap="none">Run all</button></p>
   {{end}}
 
+  {{if .Env.Any}}
+  <p class="nk-notice">
+    {{- if .Env.Malformed}}This notebook&rsquo;s <code>requires:</code> has no value.
+    A YAML block list is not readable here — write it inline, as
+    <code>requires: [NAME, OTHER]</code>.
+    {{- else}}Missing from the environment:
+    {{range .Env.Missing}}<code>{{.}}</code> {{end}}—
+    export them before starting, so their values never reach the notebook. Cells
+    still run.
+    {{- end}}
+  </p>
+  {{end}}
+
   {{if .LocalFilesUngranted}}
   <p class="nk-notice">This notebook displays files from its own directory, which is
      not enabled. Images will not appear until the tool is started with local files
