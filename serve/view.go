@@ -298,7 +298,12 @@ func (s *Server) resultBody(src []byte, index int, r doc.Result) (string, bool) 
 		}
 	}
 	if live, ok := s.sched.LiveBody(s.path, index); ok {
-		return live, truncated
+		// Redraws are replayed here too, not only on the way to disk. The live body
+		// outlives the run, so without this a progress display would show as a pile
+		// of frames in the browser and as one line in the file — the same result,
+		// disagreeing with itself. Lines that did not redraw keep their bytes, so
+		// colour still reaches the page.
+		return doc.ReplayRedraws(live), truncated
 	}
 	return fenceBody(src, r), truncated
 }

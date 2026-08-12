@@ -77,10 +77,16 @@ func FenceLen(body string) int {
 // Scope, resolving the question the implementation plan raised as §8.5: CSI
 // sequences (ESC [ … final byte), OSC sequences (ESC ] … BEL or ST), and any other
 // two-byte ESC sequence are removed; remaining control characters are dropped except
-// tab and newline. A carriage return is a control character, so CRLF becomes LF and a
-// progress-bar CR disappears — a shell executor emits far more than colour, and the
-// durable form is the plain form (harvest F12).
+// tab and newline — a shell executor emits far more than colour, and the durable form
+// is the plain form (harvest F12). CRLF therefore becomes LF.
+//
+// Cursor movement within a line is replayed first ([ReplayRedraws]), so a line that
+// rewrote itself persists as the text it finally showed. This function used to delete
+// the carriage return and keep every frame, which is how a few seconds of spinner
+// reached the file as a paragraph of itself with the real output buried at the end.
 func StripANSI(s string) string {
+	s = ReplayRedraws(s)
+
 	var b strings.Builder
 	b.Grow(len(s))
 

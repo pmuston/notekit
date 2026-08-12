@@ -240,7 +240,9 @@ func TestStripANSI(t *testing.T) {
 		{"two-byte escape", "\x1b(Bplain\n", "plain\n"},
 		{"lone escape at end", "text\x1b", "text"},
 		{"crlf becomes lf", "a\r\nb\r\n", "a\nb\n"},
-		{"progress bar carriage returns", "50%\r75%\r100%\n", "50%75%100%\n"},
+		// Replayed, not deleted: the carriage return says the line was drawn over.
+		// This asserted the concatenation for a year, which is what shipped it.
+		{"progress bar carriage returns", "50%\r75%\r100%\n", "100%\n"},
 		{"tabs kept", "a\tb\n", "a\tb\n"},
 		{"nul and bell dropped", "a\x00b\x07c\n", "abc\n"},
 		{"utf-8 preserved", "日本語\n", "日本語\n"},
